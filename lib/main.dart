@@ -22,5 +22,11 @@ void main() async {
   final db = AppDatabase();
   await db.init();
   await db.autoAllocateRollingHabits();
-  runApp(MyDailyRoutineApp(db: db));
-}
+  // main.dart में
+runApp(
+  AnimatedOpacity(
+    opacity: 1.0,
+    duration: const Duration(milliseconds: 800), // 800ms की स्मूथनेस
+    child: MyDailyRoutineApp(db: db),
+  )
+);

@@ -182,7 +182,7 @@ class AppDatabase {
     }
   }
 
-  Future<List>> getTasks(DateTime date) async {
+  Future<List<Map<String, dynamic>>> getTasks(DateTime date) async {
     return db.query(
       'tasks',
       where: 'date = ?',
@@ -395,9 +395,9 @@ class AppDatabase {
     await db.delete('tasks');
   }
 
-  Future<List>> allTasks() async => db.query('tasks', orderBy: 'date DESC, startMinutes ASC');
+  Future<List<Map<String, dynamic>>> allTasks() async => db.query('tasks', orderBy: 'date DESC, startMinutes ASC');
 
-  Future<List>> tasksBetween(DateTime start, DateTime end) async {
+  Future<List<Map<String, dynamic>>> tasksBetween(DateTime start, DateTime end) async {
     return db.query(
       'tasks',
       where: 'date >= ? AND date <= ?',
@@ -406,7 +406,7 @@ class AppDatabase {
     );
   }
 
-  Future<List>> categories() async => db.query('categories', orderBy: 'name ASC');
+  Future<List<Map<String, dynamic>>> categories() async => db.query('categories', orderBy: 'name ASC');
 
   Future<void> addCategory(String name, {String colorHex = '#2563EB'}) async {
     if (name.trim().isEmpty) return;
@@ -419,7 +419,7 @@ class AppDatabase {
 
   Future<void> deleteCategory(String name) async => db.delete('categories', where: 'name = ?', whereArgs: [name]);
 
-  Future<List>> getTemplates() async => db.query('templates', orderBy: 'id ASC');
+  Future<List<Map<String, dynamic>>> getTemplates() async => db.query('templates', orderBy: 'id ASC');
   Future<void> saveTemplate(String name, String tasksJson) async {
     await db.insert('templates', {'name': name, 'tasksJson': tasksJson}, conflictAlgorithm: ConflictAlgorithm.replace);
   }

@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart'; // नया इम्पोर्ट
 
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'google_drive_service.dart'; // नई फाइल का इम्पोर्ट
 import 'helpers.dart';
 import 'native_storage_explorer_dialog.dart';
 
@@ -32,6 +32,8 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  final GoogleDriveService _driveService = GoogleDriveService(); // ड्राइव सर्विस
+
   int streakTarget = 80;
   bool carryForward = false;
   late String appTitle;
@@ -111,81 +113,65 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> backupToGoogleDriveNow() async {
-    try {
-      final json = await widget.db.exportJson();
-      final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
-      final fileName = 'Taskify_Drive_Backup_$dateStr.json';
-
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/$fileName');
-      await tempFile.writeAsString(json);
-
-      // यह कोड आपके स्क्रीनशॉट जैसा Google Drive शेयर मेनू खोलेगा
-      await Share.shareXFiles(
-        [XFile(tempFile.path, mimeType: 'application/json')],
-        subject: 'Taskify Data Backup',
-        text: 'Here is your Taskify backup. Upload it to Google Drive.',
-      );
-
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Drive action error: $e')));
-    }
-  }
-
   Future<void> handleGoogleDriveOptions() async {
     final action = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Google Drive Backup'),
-        content: const Text('Backup directly to Google Drive or configure external link:'),
+        content: const Text('Do you want to backup your data to Google Drive now? (Saved securely in a hidden app folder)'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton.tonal(
             onPressed: () => Navigator.pop(context, 'backup_now'),
             child: const Text('Backup Now (Drive)'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'configure_link'),
-            child: const Text('Set Drive Link'),
-          ),
         ],
       ),
     );
 
-    if (action == null) return;
-
     if (action == 'backup_now') {
-      await backupToGoogleDriveNow();
-    } else if (action == 'configure_link') {
-      final ctrl = TextEditingController();
-      final currentUrl = await widget.db.getSetting('cloudSyncUrl');
-      ctrl.text = currentUrl ?? '';
+      await _performGoogleDriveBackup();
+    }
+  }
 
-      if (!mounted) return;
-      final res = await showDialog<String>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Google Drive Link / Webhook'),
-          content: TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(hintText: 'https://drive.google.com/... or Webhook URL'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(context, ctrl.text.trim()), child: const Text('Save')),
-          ],
-        ),
-      );
+  Future<void> _performGoogleDriveBackup() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.violet)),
+    );
 
-      if (res != null && res.isNotEmpty) {
-        await widget.db.setSetting('cloudSyncUrl', res);
-        await widget.db.setSetting('cloudSyncEnabled', '1');
-        setState(() => cloudSyncEnabled = true);
+    try {
+      final json = await widget.db.exportJson();
+      final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
+      final fileName = 'Taskify_Backup_$dateStr.json';
+
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsString(json);
+
+      // असली Google Drive अपलोड
+      final success = await _driveService.uploadBackup(tempFile, fileName);
+
+      if (mounted) Navigator.pop(context); // लोडिंग बंद करें
+
+      if (success) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Drive configuration saved!')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ Backup successfully saved to Google Drive!')),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Backup failed or cancelled.')),
+        );
       }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     }
   }
 
@@ -744,8 +730,8 @@ class _SettingsPageState extends State<SettingsPage> {
           _settingsTile(
             icon: Icons.cloud_sync_rounded,
             color: AppColors.emerald,
-            title: 'Google Drive Options',
-            subtitle: 'Tap to Backup Now directly or configure Drive link.',
+            title: 'Google Drive Backup',
+            subtitle: 'Securely save backup in hidden Google Drive folder.',
             onTap: handleGoogleDriveOptions,
           ),
           GlassCard(

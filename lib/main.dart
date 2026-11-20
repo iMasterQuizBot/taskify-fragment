@@ -6,9 +6,6 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'app_database.dart';
 import 'taskify_app.dart';
 
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   GestureBinding.instance.resamplingEnabled = true;

@@ -1,4 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
@@ -42,6 +46,74 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
         savedPin = pin ?? '';
         isLocked = pinEnabled == '1' && savedPin.isNotEmpty;
       });
+
+      // ऐप ओपन होने के बाद ऑटो-बैकअप चेक करें
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!isLocked) _checkAutoBackup();
+      });
+    }
+  }
+
+  Future<void> _checkAutoBackup() async {
+    final isEnabled = await widget.db.getSetting('featureAutoBackupEnabled');
+    if (isEnabled != '1') return;
+
+    final backupDay = await widget.db.getSetting('autoBackupDay');
+    final lastBackup = await widget.db.getSetting('lastAutoBackupDate');
+
+    final now = DateTime.now();
+    final todayName = DateFormat('EEEE').format(now); // Sunday, Monday आदि
+    final todayDate = DateFormat('yyyy-MM-dd').format(now);
+
+    if ((todayName == backupDay || backupDay == 'Every Day') && lastBackup != todayDate) {
+      if (!mounted) return;
+      
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Auto-Backup Reminder', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Text('Today is your scheduled backup day ($backupDay).\n\nDo you want to upload your data to Google Drive now?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                // आज के लिए डिसमिस कर दें ताकि बार-बार न पूछे
+                widget.db.setSetting('lastAutoBackupDate', todayDate);
+              },
+              child: const Text('Later'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await widget.db.setSetting('lastAutoBackupDate', todayDate);
+                await _performAutoBackup();
+              },
+              child: const Text('Backup Now'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  Future<void> _performAutoBackup() async {
+    try {
+      final json = await widget.db.exportJson();
+      final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
+      final fileName = 'Taskify_Drive_Backup_$dateStr.json';
+
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsString(json);
+
+      // Google Drive / WhatsApp / Telegram शेयर मेनू खोलें
+      await Share.shareXFiles(
+        [XFile(tempFile.path, mimeType: 'application/json')],
+        subject: 'Taskify Data Backup',
+        text: 'Here is your Taskify backup. Upload it to Google Drive.',
+      );
+    } catch (e) {
+      // इग्नोर एरर इन ऑटो बैकअप
     }
   }
 
@@ -148,7 +220,10 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
       home: isLocked
           ? PinLockScreen(
               expectedPin: savedPin,
-              onUnlocked: () => setState(() => isLocked = false),
+              onUnlocked: () {
+                setState(() => isLocked = false);
+                _checkAutoBackup(); // अनलॉक होने के बाद बैकअप चेक करें
+              },
             )
           : MainScreen(
               db: widget.db,

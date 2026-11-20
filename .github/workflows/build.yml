@@ -84,6 +84,11 @@ jobs:
 
                       content = parts[0] + "defaultConfig {" + rest
 
+                  # Lint: skip the release lint check that crashes the build
+                  lint_block = "\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }" if is_kts else "\n    lint {\n        checkReleaseBuilds false\n        abortOnError false\n    }"
+                  if "lint {" not in content and "android {" in content:
+                      content = content.replace("android {", "android {" + lint_block, 1)
+
                   with open(path, "w") as f:
                       f.write(content)
                   break

@@ -117,11 +117,19 @@ class _SettingsPageState extends State<SettingsPage> {
     final action = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Google Drive Backup'),
-        content: const Text('Do you want to backup your data to Google Drive now? (Saved securely in a hidden app folder)'),
+        title: const Text('Google Drive Options'),
+        content: const Text('Backup to Google Drive (hidden app folder), copy backup to clipboard, or set an external link / webhook:'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, 'configure_link'),
+            child: const Text('Set Drive Link'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, 'clipboard_backup'),
+            child: const Text('Copy Backup'),
+          ),
+          FilledButton(
             onPressed: () => Navigator.pop(context, 'backup_now'),
             child: const Text('Backup Now (Drive)'),
           ),
@@ -129,8 +137,69 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
 
+    if (action == null) return;
+
     if (action == 'backup_now') {
       await _performGoogleDriveBackup();
+    } else if (action == 'clipboard_backup') {
+      await backupToClipboard();
+    } else if (action == 'configure_link') {
+      await configureDriveLink();
+    }
+  }
+
+  Future<void> backupToClipboard() async {
+    try {
+      final json = await widget.db.exportJson();
+      final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
+      final fileName = 'Taskify_Drive_Backup_$dateStr.json';
+
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$fileName');
+      await tempFile.writeAsString(json);
+
+      await Clipboard.setData(ClipboardData(text: json));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Backup ready ($fileName).\nCopied to clipboard. Select Drive to save.'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Drive action error: $e')));
+    }
+  }
+
+  Future<void> configureDriveLink() async {
+    final ctrl = TextEditingController();
+    final currentUrl = await widget.db.getSetting('cloudSyncUrl');
+    ctrl.text = currentUrl ?? '';
+
+    if (!mounted) return;
+    final res = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Google Drive Link / Webhook'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(hintText: 'https://drive.google.com/... or Webhook URL'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, ctrl.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+
+    if (res != null && res.isNotEmpty) {
+      await widget.db.setSetting('cloudSyncUrl', res);
+      await widget.db.setSetting('cloudSyncEnabled', '1');
+      if (!mounted) return;
+      setState(() => cloudSyncEnabled = true);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Drive configuration saved!')));
     }
   }
 

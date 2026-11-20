@@ -2,10 +2,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'google_drive_service.dart';
 import 'main_screen.dart';
 
 class MyDailyRoutineApp extends StatefulWidget {
@@ -23,6 +23,8 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
   String refreshRateMode = '120';
   bool isLocked = false;
   String savedPin = '';
+
+  final GoogleDriveService _driveService = GoogleDriveService();
 
   @override
   void initState() {
@@ -47,7 +49,6 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
         isLocked = pinEnabled == '1' && savedPin.isNotEmpty;
       });
 
-      // ऐप ओपन होने के बाद ऑटो-बैकअप चेक करें
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!isLocked) _checkAutoBackup();
       });
@@ -62,7 +63,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
     final lastBackup = await widget.db.getSetting('lastAutoBackupDate');
 
     final now = DateTime.now();
-    final todayName = DateFormat('EEEE').format(now); // Sunday, Monday आदि
+    final todayName = DateFormat('EEEE').format(now);
     final todayDate = DateFormat('yyyy-MM-dd').format(now);
 
     if ((todayName == backupDay || backupDay == 'Every Day') && lastBackup != todayDate) {
@@ -77,7 +78,6 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
             TextButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                // आज के लिए डिसमिस कर दें ताकि बार-बार न पूछे
                 widget.db.setSetting('lastAutoBackupDate', todayDate);
               },
               child: const Text('Later'),
@@ -106,14 +106,17 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
       final tempFile = File('${tempDir.path}/$fileName');
       await tempFile.writeAsString(json);
 
-      // Google Drive / WhatsApp / Telegram शेयर मेनू खोलें
-      await Share.shareXFiles(
-        [XFile(tempFile.path, mimeType: 'application/json')],
-        subject: 'Taskify Data Backup',
-        text: 'Here is your Taskify backup. Upload it to Google Drive.',
-      );
+      // असली Google Drive अपलोड
+      final success = await _driveService.uploadBackup(tempFile, fileName);
+      
+      if (!mounted) return;
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✅ Auto-Backup successful to Google Drive!')),
+        );
+      }
     } catch (e) {
-      // इग्नोर एरर इन ऑटो बैकअप
+      // इग्नोर एरर
     }
   }
 
@@ -222,7 +225,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
               expectedPin: savedPin,
               onUnlocked: () {
                 setState(() => isLocked = false);
-                _checkAutoBackup(); // अनलॉक होने के बाद बैकअप चेक करें
+                _checkAutoBackup();
               },
             )
           : MainScreen(

@@ -29,11 +29,11 @@ class GoogleDriveService {
     _currentUser = null;
   }
 
-  // 3. Google Drive में सेव करना (WhatsApp स्टाइल)
+  // 3. Google Drive में बैकअप अपलोड करना
   Future<bool> uploadBackup(File backupFile, String fileName) async {
     if (_currentUser == null) {
       final signedIn = await signIn();
-      if (!signedIn) return false; // अगर यूजर लॉगिन नहीं करता तो वापस जाएं
+      if (!signedIn) return false;
     }
 
     try {

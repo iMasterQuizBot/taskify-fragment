@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart'; // नया इम्पोर्ट
 
 import 'app_database.dart';
 import 'app_theme.dart';
@@ -120,15 +121,13 @@ class _SettingsPageState extends State<SettingsPage> {
       final tempFile = File('${tempDir.path}/$fileName');
       await tempFile.writeAsString(json);
 
-      await Clipboard.setData(ClipboardData(text: json));
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Backup ready ($fileName).\nCopied to clipboard. Select Drive to save.'),
-          duration: const Duration(seconds: 4),
-        ),
+      // यह कोड आपके स्क्रीनशॉट जैसा Google Drive शेयर मेनू खोलेगा
+      await Share.shareXFiles(
+        [XFile(tempFile.path, mimeType: 'application/json')],
+        subject: 'Taskify Data Backup',
+        text: 'Here is your Taskify backup. Upload it to Google Drive.',
       );
+
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Drive action error: $e')));

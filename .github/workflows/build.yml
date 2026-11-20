@@ -45,9 +45,10 @@ jobs:
                   desugar_dep = "coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")" if is_kts else "coreLibraryDesugaring '\''com.android.tools:desugar_jdk_libs:2.1.4'\''"
 
                   # Inject compileOptions
+                  content = content.replace("JavaVersion.VERSION_11", "JavaVersion.VERSION_17")
                   if "compileOptions {" in content:
                       if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
-                          content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17")
+                          content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}")
                   
                   # Inject dependency
                   if "desugar_jdk_libs" not in content:
@@ -64,10 +65,16 @@ jobs:
                       first_block = rest.split("}")[0]
                       
                       inject = ""
-                      if "versionCode" not in first_block:
-                          inject += "\n        versionCode 1"
-                      if "multiDexEnabled" not in first_block:
-                          inject += "\n        multiDexEnabled true"
+                      if is_kts:
+                          if "versionCode" not in first_block:
+                              inject += "\n        versionCode = 1"
+                          if "multiDexEnabled" not in first_block:
+                              inject += "\n        multiDexEnabled = true"
+                      else:
+                          if "versionCode" not in first_block:
+                              inject += "\n        versionCode 1"
+                          if "multiDexEnabled" not in first_block:
+                              inject += "\n        multiDexEnabled true"
                       if inject:
                           rest = inject + rest
                           
@@ -119,6 +126,18 @@ jobs:
           if [ -f "app_icon.png" ]; then
             sed -i 's/image_path: .*/image_path: "app_icon.png"/' pubspec.yaml
             dart run flutter_launcher_icons || true
+          fi
+
+      - name: Restore stable signing key (keeps Google sign-in working)
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            mkdir -p ~/.android
+            echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "Stable signing key restored"
+          else
+            echo "No DEBUG_KEYSTORE_B64 secret set; using a new key this run"
           fi
 
       - name: Build Android APK

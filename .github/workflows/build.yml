@@ -40,7 +40,7 @@ jobs:
                       content = f.read()
                   is_kts = path.endswith(".kts")
                   
-                  # 1. Correct syntax for multiDexEnabled, versionCode, and Java 17
+                  # Correct syntax for multiDexEnabled, versionCode, and Java 17
                   multi_dex_line = "multiDexEnabled = true" if is_kts else "multiDexEnabled true"
                   version_code_line = "versionCode = 1" if is_kts else "versionCode 1"
                   desugar_flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled = true"
@@ -59,20 +59,29 @@ jobs:
 
                   # Inject defaultConfig settings (versionCode, multiDex, minSdk)
                   if "defaultConfig {" in content:
-                      # Check if versionCode is missing
                       if "versionCode" not in content.split("defaultConfig {")[1].split("}")[0]:
                           content = content.replace("defaultConfig {", f"defaultConfig {{\n        {version_code_line}")
-                      # Check if multiDexEnabled is missing
                       if "multiDexEnabled" not in content:
                           content = content.replace("defaultConfig {", f"defaultConfig {{\n        {multi_dex_line}")
                       
-                      # Force minSdk to 21
                       content = content.replace("minSdk = flutter.minSdkVersion", "minSdk = 21")
                       content = content.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21")
 
                   with open(path, "w") as f:
                       f.write(content)
                   break
+          '
+
+          # Update AGP version in settings.gradle
+          python3 -c '
+          import os
+          path = "android/settings.gradle"
+          if os.path.exists(path):
+              with open(path, "r") as f:
+                  content = f.read()
+              content = content.replace("com.android.application\\" version \\"7", "com.android.application\\" version \\"8.2.1")
+              with open(path, "w") as f:
+                  f.write(content)
           '
 
           # Permissions Injection
@@ -83,20 +92,20 @@ jobs:
               with open(manifest_path, "r") as f:
                   m_code = f.read()
               perms = [
-                  "<uses-permission android:name=\"android.permission.INTERNET\"/>",
-                  "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
-                  "<uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\"/>",
-                  "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
-                  "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
-                  "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
-                  "<uses-permission android:name=\"android.permission.MANAGE_EXTERNAL_STORAGE\"/>",
-                  "<uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\"/>"
+                  "<uses-permission android:name=\\"android.permission.INTERNET\\"/>",
+                  "<uses-permission android:name=\\"android.permission.POST_NOTIFICATIONS\\"/>",
+                  "<uses-permission android:name=\\"android.permission.SCHEDULE_EXACT_ALARM\\"/>",
+                  "<uses-permission android:name=\\"android.permission.RECEIVE_BOOT_COMPLETED\\"/>",
+                  "<uses-permission android:name=\\"android.permission.READ_EXTERNAL_STORAGE\\"/>",
+                  "<uses-permission android:name=\\"android.permission.WRITE_EXTERNAL_STORAGE\\"/>",
+                  "<uses-permission android:name=\\"android.permission.MANAGE_EXTERNAL_STORAGE\\"/>",
+                  "<uses-permission android:name=\\"android.permission.READ_MEDIA_AUDIO\\"/>"
               ]
-              perm_block = "\n    ".join(perms) + "\n    "
+              perm_block = "\\n    ".join(perms) + "\\n    "
               if "INTERNET" not in m_code:
                   m_code = m_code.replace("<application", perm_block + "<application")
               if "requestLegacyExternalStorage" not in m_code:
-                  m_code = m_code.replace("<application", "<application android:requestLegacyExternalStorage=\"true\"")
+                  m_code = m_code.replace("<application", "<application android:requestLegacyExternalStorage=\\"true\\"")
               with open(manifest_path, "w") as f:
                   f.write(m_code)
           '

@@ -1,6 +1,8 @@
 // ============================================================
 // DESIGN SYSTEM & TELEGRAM-STYLE CONFETTI
 // ============================================================
+import 'dart:math';
+import 'package:flutter/material.dart';
 
 class AppColors {
   static const background = Color(0xFF0B0E14);

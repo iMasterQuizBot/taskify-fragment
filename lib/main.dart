@@ -1,16 +1,10 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:intl/intl.dart';
 import 'package:timezone/data/latest.dart' as tz;
 
 import 'app_database.dart';
 import 'taskify_app.dart';
-import 'helpers.dart';
-import 'native_storage_explorer_dialog.dart';
-import 'package:share_plus/share_plus.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +23,7 @@ void main() async {
   await db.init();
   await db.autoAllocateRollingHabits();
 
+  // FadeInApp के साथ ऐप शुरू करें
   runApp(FadeInApp(child: MyDailyRoutineApp(db: db)));
 }
 
@@ -47,6 +42,7 @@ class _FadeInAppState extends State<FadeInApp> {
   @override
   void initState() {
     super.initState();
+    // 100ms बाद फेड-इन शुरू होगा
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) setState(() => _opacity = 1.0);
     });
@@ -56,7 +52,7 @@ class _FadeInAppState extends State<FadeInApp> {
   Widget build(BuildContext context) {
     return AnimatedOpacity(
       opacity: _opacity,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 800), // 800ms की स्मूथनेस
       curve: Curves.easeInOut,
       child: widget.child,
     );

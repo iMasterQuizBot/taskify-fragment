@@ -315,6 +315,26 @@ class AppDatabase {
     bool reminder = false,
   }) async {
     final fromDateStr = dateKey(fromDate);
+
+    // 1. सबसे महत्वपूर्ण फिक्स: पास्ट के टास्क का रिपीट बंद करें
+    // ताकि पुराना टाइटल आगे के दिनों में अपने आप जनरेट न हो
+    await db.update(
+      'tasks',
+      {'repeatType': 'once'},
+      where: 'title = ? AND date < ?',
+      whereArgs: [originalTitle, fromDateStr],
+    );
+
+    // 2. अगर टाइटल बदला है, तो फ्यूचर में नए टाइटल के डुप्लीकेट टास्क डिलीट करें
+    if (originalTitle != newTitle) {
+      await db.delete(
+        'tasks',
+        where: 'title = ? AND date > ?',
+        whereArgs: [newTitle, fromDateStr],
+      );
+    }
+
+    // 3. अब fromDate (आज) से आगे के सभी टास्क को अपडेट करें
     final rows = await db.query(
       'tasks',
       where: 'title = ? AND date >= ?',

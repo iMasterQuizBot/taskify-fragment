@@ -1,3 +1,7 @@
+// ============================================================
+// HELPERS (STRICT 12-HOUR AM/PM ENGINE)
+// ============================================================
+
 String formatMinutes(int minutes) {
   final hour24 = (minutes ~/ 60) % 24;
   final minute = minutes % 60;

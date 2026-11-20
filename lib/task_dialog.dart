@@ -43,6 +43,14 @@ class _TaskDialogState extends State<TaskDialog> {
 
   bool applyToAllFuture = false;
 
+  // चेक करने के लिए कि तारीख पास्ट की है या नहीं
+  bool get isPastDate {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final taskDate = DateTime(widget.date.year, widget.date.month, widget.date.day);
+    return taskDate.isBefore(today);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -225,7 +233,10 @@ class _TaskDialogState extends State<TaskDialog> {
     final repeatDaysString = selectedCustomDays.join(',');
 
     if (widget.task != null) {
-      if (applyToAllFuture) {
+      // अगर पास्ट की तारीख है, तो जबरदस्ती future apply को false कर दें
+      bool finalApplyToFuture = isPastDate ? false : applyToAllFuture;
+
+      if (finalApplyToFuture) {
         await widget.db.updateFutureTasks(
           widget.task!['title'].toString(),
           widget.date,
@@ -738,7 +749,8 @@ class _TaskDialogState extends State<TaskDialog> {
                   onChanged: (val) => setState(() => reminder = val),
                 ),
               ),
-              if (editing) ...[
+              // यहाँ चेक लगाया गया है कि अगर पास्ट की तारीख है, तो यह ऑप्शन न दिखे
+              if (editing && !isPastDate) ...[
                 const SizedBox(height: 8),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,

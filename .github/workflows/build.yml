@@ -22,8 +22,8 @@ jobs:
       - name: Setup App Icon Support
         run: |
           sudo apt-get update && sudo apt-get install -y inkscape || true
-          if [ -f "app_icon.svg" ]; then
-            inkscape -w 1024 -h 1024 app_icon.svg -o app_icon.png || true
+          if [ -f "app_icon.png" ]; then
+            inkscape -w 1024 -h 1024 app_icon.png -o app_icon.png || true
           fi
 
       - name: Scaffold Android & Inject Setup

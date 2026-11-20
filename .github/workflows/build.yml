@@ -31,7 +31,7 @@ jobs:
           flutter create . --platforms=android --org com.taskify --project-name taskify_app
           sed -i 's/android:label=".*"/android:label="Taskify"/' android/app/src/main/AndroidManifest.xml || true
           
-          # Gradle Injection Script (FIXED for Kotlin DSL)
+          # Gradle Injection Script (FIXED & SAFE)
           python3 -c '
           import os
           for path in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
@@ -40,15 +40,14 @@ jobs:
                       content = f.read()
                   is_kts = path.endswith(".kts")
                   
-                  # Correct syntax for multiDexEnabled, versionCode, and Java 17
-                  multi_dex_line = "multiDexEnabled = true" if is_kts else "multiDexEnabled true"
-                  version_code_line = "versionCode = 1" if is_kts else "versionCode 1"
+                  # 1. Correct syntax for multiDexEnabled, versionCode, and Java 17
                   desugar_flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled = true"
                   desugar_dep = "coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")" if is_kts else "coreLibraryDesugaring '\''com.android.tools:desugar_jdk_libs:2.1.4'\''"
 
                   # Inject compileOptions
                   if "compileOptions {" in content:
-                      content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17")
+                      if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
+                          content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17")
                   
                   # Inject dependency
                   if "desugar_jdk_libs" not in content:
@@ -59,29 +58,28 @@ jobs:
 
                   # Inject defaultConfig settings (versionCode, multiDex, minSdk)
                   if "defaultConfig {" in content:
-                      if "versionCode" not in content.split("defaultConfig {")[1].split("}")[0]:
-                          content = content.replace("defaultConfig {", f"defaultConfig {{\n        {version_code_line}")
-                      if "multiDexEnabled" not in content:
-                          content = content.replace("defaultConfig {", f"defaultConfig {{\n        {multi_dex_line}")
+                      # Split the content to inject only inside defaultConfig block
+                      parts = content.split("defaultConfig {", 1)
+                      rest = parts[1]
+                      first_block = rest.split("}")[0]
                       
-                      content = content.replace("minSdk = flutter.minSdkVersion", "minSdk = 21")
-                      content = content.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21")
+                      inject = ""
+                      if "versionCode" not in first_block:
+                          inject += "\n        versionCode 1"
+                      if "multiDexEnabled" not in first_block:
+                          inject += "\n        multiDexEnabled true"
+                      if inject:
+                          rest = inject + rest
+                          
+                      # Force minSdk to 21
+                      rest = rest.replace("minSdk = flutter.minSdkVersion", "minSdk = 21")
+                      rest = rest.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21")
+
+                      content = parts[0] + "defaultConfig {" + rest
 
                   with open(path, "w") as f:
                       f.write(content)
                   break
-          '
-
-          # Update AGP version in settings.gradle
-          python3 -c '
-          import os
-          path = "android/settings.gradle"
-          if os.path.exists(path):
-              with open(path, "r") as f:
-                  content = f.read()
-              content = content.replace("com.android.application\\" version \\"7", "com.android.application\\" version \\"8.2.1")
-              with open(path, "w") as f:
-                  f.write(content)
           '
 
           # Permissions Injection
@@ -92,20 +90,20 @@ jobs:
               with open(manifest_path, "r") as f:
                   m_code = f.read()
               perms = [
-                  "<uses-permission android:name=\\"android.permission.INTERNET\\"/>",
-                  "<uses-permission android:name=\\"android.permission.POST_NOTIFICATIONS\\"/>",
-                  "<uses-permission android:name=\\"android.permission.SCHEDULE_EXACT_ALARM\\"/>",
-                  "<uses-permission android:name=\\"android.permission.RECEIVE_BOOT_COMPLETED\\"/>",
-                  "<uses-permission android:name=\\"android.permission.READ_EXTERNAL_STORAGE\\"/>",
-                  "<uses-permission android:name=\\"android.permission.WRITE_EXTERNAL_STORAGE\\"/>",
-                  "<uses-permission android:name=\\"android.permission.MANAGE_EXTERNAL_STORAGE\\"/>",
-                  "<uses-permission android:name=\\"android.permission.READ_MEDIA_AUDIO\\"/>"
+                  "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                  "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
+                  "<uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\"/>",
+                  "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
+                  "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+                  "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+                  "<uses-permission android:name=\"android.permission.MANAGE_EXTERNAL_STORAGE\"/>",
+                  "<uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\"/>"
               ]
-              perm_block = "\\n    ".join(perms) + "\\n    "
+              perm_block = "\n    ".join(perms) + "\n    "
               if "INTERNET" not in m_code:
                   m_code = m_code.replace("<application", perm_block + "<application")
               if "requestLegacyExternalStorage" not in m_code:
-                  m_code = m_code.replace("<application", "<application android:requestLegacyExternalStorage=\\"true\\"")
+                  m_code = m_code.replace("<application", "<application android:requestLegacyExternalStorage=\"true\"")
               with open(manifest_path, "w") as f:
                   f.write(m_code)
           '

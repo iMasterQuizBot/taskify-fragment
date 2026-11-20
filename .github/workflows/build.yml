@@ -31,7 +31,7 @@ jobs:
           flutter create . --platforms=android --org com.taskify --project-name taskify_app
           sed -i 's/android:label=".*"/android:label="Taskify"/' android/app/src/main/AndroidManifest.xml || true
           
-          # Gradle Injection Script (FIXES versionCode, multiDex, Java 17, Desugaring)
+          # Gradle Injection Script (FIXED for Kotlin DSL)
           python3 -c '
           import os
           for path in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
@@ -40,27 +40,32 @@ jobs:
                       content = f.read()
                   is_kts = path.endswith(".kts")
                   
-                  # 1. Java Version & Desugaring
+                  # 1. Correct syntax for multiDexEnabled, versionCode, and Java 17
+                  multi_dex_line = "multiDexEnabled = true" if is_kts else "multiDexEnabled true"
+                  version_code_line = "versionCode = 1" if is_kts else "versionCode 1"
                   desugar_flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled = true"
                   desugar_dep = "coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")" if is_kts else "coreLibraryDesugaring '\''com.android.tools:desugar_jdk_libs:2.1.4'\''"
-                  
+
+                  # Inject compileOptions
                   if "compileOptions {" in content:
                       content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17")
                   
+                  # Inject dependency
                   if "desugar_jdk_libs" not in content:
                       if "dependencies {" in content:
                           content = content.replace("dependencies {", f"dependencies {{\n    {desugar_dep}")
                       else:
                           content += f"\ndependencies {{\n    {desugar_dep}\n}}\n"
 
-                  # 2. VersionCode, minSdk, and MultiDex
+                  # Inject defaultConfig settings (versionCode, multiDex, minSdk)
                   if "defaultConfig {" in content:
-                      # Add versionCode if not present
+                      # Check if versionCode is missing
                       if "versionCode" not in content.split("defaultConfig {")[1].split("}")[0]:
-                          content = content.replace("defaultConfig {", "defaultConfig {\n        versionCode 1")
-                      # Add multiDexEnabled
+                          content = content.replace("defaultConfig {", f"defaultConfig {{\n        {version_code_line}")
+                      # Check if multiDexEnabled is missing
                       if "multiDexEnabled" not in content:
-                          content = content.replace("defaultConfig {", "defaultConfig {\n        multiDexEnabled true")
+                          content = content.replace("defaultConfig {", f"defaultConfig {{\n        {multi_dex_line}")
+                      
                       # Force minSdk to 21
                       content = content.replace("minSdk = flutter.minSdkVersion", "minSdk = 21")
                       content = content.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21")

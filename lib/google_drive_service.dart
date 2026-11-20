@@ -4,6 +4,10 @@ import 'package:googleapis/drive/v3.dart' as ga;
 import 'package:http/http.dart' as http;
 
 class GoogleDriveService {
+  static final GoogleDriveService _instance = GoogleDriveService._internal();
+  factory GoogleDriveService() => _instance;
+  GoogleDriveService._internal();
+
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [
       'https://www.googleapis.com/auth/drive.appdata', // WhatsApp जैसा छिपा फोल्डर

@@ -2,6 +2,9 @@
 // HELPERS (STRICT 12-HOUR AM/PM ENGINE)
 // ============================================================
 
+import 'package:flutter/material.dart';
+import 'app_theme.dart';
+
 String formatMinutes(int minutes) {
   final hour24 = (minutes ~/ 60) % 24;
   final minute = minutes % 60;

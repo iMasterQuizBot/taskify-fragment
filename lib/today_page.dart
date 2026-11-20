@@ -33,7 +33,7 @@ class TodayPage extends StatefulWidget {
 }
 
 class TodayPageState extends State<TodayPage> {
-  List> tasks = [];
+  List<Map<String, dynamic>> tasks = [];
   bool loading = true;
   bool subtasksEnabled = true;
   int currentStreak = 0;

@@ -94,7 +94,7 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
   Future<void> chooseCustomAudio() async {
     final pickedFile = await showDialog<File>(
       context: context,
-      builder: (_) => const NativeStorageExplorerDialog(
+      builder: (_) => NativeStorageExplorerDialog(
         isFolderPicker: false,
         fileExtensions: ['.mp3', '.wav', '.m4a', '.aac', '.ogg'],
       ),

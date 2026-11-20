@@ -1,0 +1,102 @@
+name: Build APK
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Setup App Icon Support
+        run: |
+          sudo apt-get update && sudo apt-get install -y inkscape || true
+          if [ -f "app_icon.svg" ]; then
+            inkscape -w 1024 -h 1024 app_icon.svg -o app_icon.png || true
+          fi
+
+      - name: Scaffold Android & Inject Setup
+        run: |
+          flutter create . --platforms=android --org com.taskify --project-name taskify_app
+          sed -i 's/android:label=".*"/android:label="Taskify"/' android/app/src/main/AndroidManifest.xml || true
+          
+          # Java 8 Desugaring Injection
+          python3 -c '
+          import os
+          for path in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
+              if os.path.exists(path):
+                  with open(path, "r") as f:
+                      content = f.read()
+                  is_kts = path.endswith(".kts")
+                  desugar_flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled = true"
+                  desugar_dep = "coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.0.4\")" if is_kts else "coreLibraryDesugaring '\''com.android.tools:desugar_jdk_libs:2.0.4'\''"
+
+                  if "CoreLibraryDesugaringEnabled" not in content and "coreLibraryDesugaringEnabled" not in content:
+                      if "compileOptions {" in content:
+                          content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}")
+                      else:
+                          content = content.replace("compileOptions", f"compileOptions {{\n        {desugar_flag}\n    }}\n    //")
+
+                  if "desugar_jdk_libs" not in content:
+                      if "dependencies {" in content:
+                          content = content.replace("dependencies {", f"dependencies {{\n    {desugar_dep}")
+                      else:
+                          content += f"\ndependencies {{\n    {desugar_dep}\n}}\n"
+
+                  with open(path, "w") as f:
+                      f.write(content)
+                  break
+          '
+
+          # Permissions Injection
+          python3 -c '
+          import os
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(manifest_path):
+              with open(manifest_path, "r") as f:
+                  m_code = f.read()
+              perms = [
+                  "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
+                  "<uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\"/>",
+                  "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
+                  "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+                  "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+                  "<uses-permission android:name=\"android.permission.MANAGE_EXTERNAL_STORAGE\"/>",
+                  "<uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\"/>"
+              ]
+              perm_block = "\n    ".join(perms) + "\n    "
+              if "POST_NOTIFICATIONS" not in m_code:
+                  m_code = m_code.replace("<application", perm_block + "<application")
+              if "requestLegacyExternalStorage" not in m_code:
+                  m_code = m_code.replace("<application", "<application android:requestLegacyExternalStorage=\"true\"")
+              with open(manifest_path, "w") as f:
+                  f.write(m_code)
+          '
+
+      - name: Install Dependencies & Setup Icons
+        run: |
+          flutter pub get
+          if [ -f "app_icon.png" ]; then
+            sed -i 's/image_path: .*/image_path: "app_icon.png"/' pubspec.yaml
+            dart run flutter_launcher_icons || true
+          fi
+
+      - name: Build Android APK
+        run: flutter build apk --split-per-abi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: taskify-release-apk
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk

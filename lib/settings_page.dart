@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
-import 'google_drive_service.dart'; // नई फाइल का इम्पोर्ट
+import 'google_drive_service.dart';
 import 'helpers.dart';
 import 'native_storage_explorer_dialog.dart';
 
@@ -32,7 +32,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final GoogleDriveService _driveService = GoogleDriveService(); // ड्राइव सर्विस
+  final GoogleDriveService _driveService = GoogleDriveService();
 
   int streakTarget = 80;
   bool carryForward = false;
@@ -150,10 +150,9 @@ class _SettingsPageState extends State<SettingsPage> {
       final tempFile = File('${tempDir.path}/$fileName');
       await tempFile.writeAsString(json);
 
-      // असली Google Drive अपलोड
       final success = await _driveService.uploadBackup(tempFile, fileName);
 
-      if (mounted) Navigator.pop(context); // लोडिंग बंद करें
+      if (mounted) Navigator.pop(context);
 
       if (success) {
         if (!mounted) return;

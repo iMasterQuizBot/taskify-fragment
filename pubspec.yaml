@@ -17,7 +17,9 @@ dependencies:
   path_provider: ^2.1.2
   permission_handler: ^11.3.1
   audioplayers: ^6.1.0
-  share_plus: ^10.0.0 # Google Drive / WhatsApp शेयर मेनू के लिए जोड़ा गया
+  share_plus: ^10.0.0
+  google_sign_in: ^6.2.1
+  googleapis: ^13.2.0
 
 dev_dependencies:
   flutter_test:

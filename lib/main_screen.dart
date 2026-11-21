@@ -104,7 +104,12 @@ class _MainScreenState extends State<MainScreen> {
   void _openDeepSeek() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const DeepSeekWebScreen()),
+      MaterialPageRoute(
+        builder: (_) => DeepSeekWebScreen(
+          db: widget.db,
+          onDatabaseChanged: globalRefresh,
+        ),
+      ),
     );
   }
 

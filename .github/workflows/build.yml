@@ -143,6 +143,49 @@ jobs:
           print("notification setup done")
           PY
 
+      - name: AI, speech, sound-file access & native sound bridge
+        run: |
+          python3 - <<'PY'
+          import os, glob, re
+
+          # 1) Manifest: मिक्रोफ़ोन, speech/TTS queries, FileProvider (साउंड फ़ाइल के लिए)
+          mp = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(mp):
+              m = open(mp).read()
+              if "taskifysounds" not in m and "<application" in m:
+                  if "RECORD_AUDIO" not in m:
+                      m = m.replace("<application", '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application', 1)
+                  queries = ('<queries>'
+                             '<intent><action android:name="android.speech.RecognitionService"/></intent>'
+                             '<intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>'
+                             '</queries>\n    ')
+                  m = m.replace("<application", queries + "<application", 1)
+                  provider = ('<provider android:name="androidx.core.content.FileProvider" '
+                              'android:authorities="${applicationId}.taskifysounds" '
+                              'android:exported="false" android:grantUriPermissions="true">'
+                              '<meta-data android:name="android.support.FILE_PROVIDER_PATHS" '
+                              'android:resource="@xml/taskify_file_paths"/></provider>')
+                  m = m.replace("</application>", provider + "\n    </application>")
+                  open(mp, "w").write(m)
+                  print("manifest updated")
+
+          # 2) FileProvider paths: ऐप की files/sounds फ़ोल्डर
+          xml_dir = "android/app/src/main/res/xml"
+          os.makedirs(xml_dir, exist_ok=True)
+          with open(xml_dir + "/taskify_file_paths.xml", "w") as f:
+              f.write('<?xml version="1.0" encoding="utf-8"?>\n<paths>\n'
+                      '    <files-path name="taskify_sounds" path="sounds/"/>\n</paths>\n')
+
+          # 3) MainActivity: native MethodChannel (ci/MainActivity.kt.template से)
+          kt_files = glob.glob("android/app/src/main/**/MainActivity.kt", recursive=True)
+          if kt_files:
+              path = kt_files[0]
+              pkg = re.search(r"^package\s+([\w.]+)", open(path).read(), re.M).group(1)
+              tpl = open("ci/MainActivity.kt.template").read()
+              open(path, "w").write(tpl.replace("__PKG__", pkg))
+              print("MainActivity updated:", pkg)
+          PY
+
       - name: Install Dependencies & Clean
         run: |
           flutter pub get

@@ -12,7 +12,6 @@ void main() async {
 
   try {
     await NotificationService.init();
-    await NotificationService.requestNotificationPermission();
   } catch (_) {}
 
   final db = AppDatabase();

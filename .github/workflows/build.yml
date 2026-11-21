@@ -120,6 +120,62 @@ jobs:
                   f.write(m_code)
           '
 
+      - name: Force compileSdk 36 for all plugins
+        run: |
+          python3 - <<'PY'
+          import os
+          KTS = """// TASKIFY_COMPILE_SDK
+          subprojects {
+              afterEvaluate {
+                  val androidExt = extensions.findByName("android")
+                  if (androidExt != null) {
+                      var done = false
+                      try {
+                          androidExt.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType).invoke(androidExt, 36)
+                          done = true
+                      } catch (e: Exception) {
+                      }
+                      if (!done) {
+                          try {
+                              androidExt.javaClass.getMethod("setCompileSdk", Int::class.javaObjectType).invoke(androidExt, 36)
+                          } catch (e: Exception) {
+                              println("compileSdk override skipped: " + e.message)
+                          }
+                      }
+                  }
+              }
+          }
+
+          """
+          GROOVY = """// TASKIFY_COMPILE_SDK
+          subprojects {
+              afterEvaluate { p ->
+                  if (p.hasProperty('android')) {
+                      p.android.compileSdkVersion 36
+                  }
+              }
+          }
+
+          """
+          import textwrap
+          KTS = textwrap.dedent(KTS)
+          GROOVY = textwrap.dedent(GROOVY)
+          for path, snippet in (("android/build.gradle.kts", KTS), ("android/build.gradle", GROOVY)):
+              if not os.path.exists(path):
+                  continue
+              c = open(path, encoding="utf-8").read()
+              if "TASKIFY_COMPILE_SDK" in c:
+                  print("already patched:", path)
+                  break
+              i = c.find("subprojects {")
+              c = (c[:i] + snippet + c[i:]) if i != -1 else (c + "\n" + snippet)
+              open(path, "w", encoding="utf-8").write(c)
+              print("compileSdk 36 override added to", path)
+              break
+          else:
+              print("WARNING: no root gradle file found")
+          PY
+
       - name: Notification receivers & custom sound files
         run: |
           python3 - <<'PY'

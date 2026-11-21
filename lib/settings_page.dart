@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +10,7 @@ import 'app_database.dart';
 import 'app_theme.dart';
 import 'google_drive_service.dart';
 import 'helpers.dart';
+import 'notification_service.dart';
 import 'native_storage_explorer_dialog.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -48,6 +50,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String autoBackupFolder = '';
   String autoBackupDay = 'Sunday';
   bool cloudSyncEnabled = false;
+  String notificationSoundKey = 'default';
   bool pinEnabled = false;
 
   @override
@@ -72,6 +75,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final autoBD = await widget.db.getSetting('autoBackupDay');
     final cloudS = await widget.db.getSetting('cloudSyncEnabled');
     final pinEn = await widget.db.getSetting('pinSecurityEnabled');
+    final notifSound = await widget.db.getSetting('notificationSound');
 
     if (!mounted) return;
 
@@ -89,6 +93,7 @@ class _SettingsPageState extends State<SettingsPage> {
       autoBackupFolder = autoBF ?? '';
       autoBackupDay = autoBD ?? 'Sunday';
       cloudSyncEnabled = cloudS == '1';
+      notificationSoundKey = notifSound ?? 'default';
       pinEnabled = pinEn == '1';
     });
   }
@@ -639,6 +644,90 @@ class _SettingsPageState extends State<SettingsPage> {
     widget.onChanged();
   }
 
+  Future<void> pickNotificationSound() async {
+    final player = AudioPlayer();
+    String selected = notificationSoundKey;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Notification Sound'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final s in notificationSounds)
+                  RadioListTile<String>(
+                    value: s.key,
+                    groupValue: selected,
+                    title: Text(s.label),
+                    onChanged: (v) async {
+                      if (v == null) return;
+                      setD(() => selected = v);
+                      final asset = notificationSoundFor(v).assetPath;
+                      if (asset != null) {
+                        await player.stop();
+                        await player.play(AssetSource(asset));
+                      }
+                    },
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, selected), child: const Text('Save')),
+          ],
+        ),
+      ),
+    );
+    await player.stop();
+    await player.dispose();
+    if (chosen == null) return;
+
+    await widget.db.setSetting('notificationSound', chosen);
+    // पहले से शेड्यूल नोटिफिकेशन भी नए साउंड से चलें
+    await widget.db.rescheduleAllReminders();
+    if (!mounted) return;
+    setState(() => notificationSoundKey = chosen);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Sound set: ${notificationSoundFor(chosen).label}')),
+    );
+  }
+
+  Future<void> testNotification() async {
+    try {
+      await NotificationService.requestNotificationPermission();
+      await NotificationService.showTest(notificationSoundKey);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Test notification भेजा गया')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Notification error: $e')));
+    }
+  }
+
+  Future<void> checkNotificationPermissions() async {
+    final granted = await NotificationService.requestNotificationPermission();
+    final exact = await NotificationService.canScheduleExact();
+    if (!exact) {
+      // Android 12+ पर यह सेटिंग खोलता है, वहाँ "Alarms & reminders" चालू करें
+      await NotificationService.openExactAlarmSettings();
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          granted && exact
+              ? 'नोटिफिकेशन और Alarm अनुमति चालू हैं'
+              : 'नोटिफिकेशन और "Alarms & reminders" की अनुमति दें',
+        ),
+      ),
+    );
+  }
+
   Widget _settingsTile({
     required IconData icon,
     required Color color,
@@ -794,6 +883,27 @@ class _SettingsPageState extends State<SettingsPage> {
             title: 'Auto-Backup Destination Folder',
             subtitle: autoBackupFolder.isEmpty ? 'Downloads (Tap to Backup Now / Pick Folder)' : '$autoBackupFolder (Tap for options)',
             onTap: pickAutoBackupFolder,
+          ),
+          _settingsTile(
+            icon: Icons.notifications_active_rounded,
+            color: AppColors.amber,
+            title: 'Notification Sound',
+            subtitle: 'Current: ${notificationSoundFor(notificationSoundKey).label} (tap to change & preview)',
+            onTap: pickNotificationSound,
+          ),
+          _settingsTile(
+            icon: Icons.notification_add_rounded,
+            color: AppColors.amber,
+            title: 'Test Notification',
+            subtitle: 'Abhi ek test notification bhejein',
+            onTap: testNotification,
+          ),
+          _settingsTile(
+            icon: Icons.verified_user_rounded,
+            color: AppColors.amber,
+            title: 'Notification Permissions',
+            subtitle: 'Notification और Alarm की अनुमति जाँचें / दें',
+            onTap: checkNotificationPermissions,
           ),
           _settingsTile(
             icon: Icons.cloud_sync_rounded,

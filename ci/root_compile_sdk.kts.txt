@@ -1,6 +1,6 @@
 // TASKIFY_COMPILE_SDK: सभी Android modules (plugins सहित) को compileSdk 36 पर रखें
 subprojects {
-    afterEvaluate {
+    val applyCompileSdk = {
         val androidExt = extensions.findByName("android")
         if (androidExt != null) {
             try {
@@ -12,5 +12,9 @@ subprojects {
             }
         }
     }
+    if (state.executed) {
+        applyCompileSdk()
+    } else {
+        afterEvaluate { applyCompileSdk() }
+    }
 }
-

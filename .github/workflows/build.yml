@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  APP_ORG: com.taskify        # <-- अपना असली org डालें
-  APP_PKG: com.taskify.routine_app  # <-- अपना असली package name डालें
+  APP_ORG: com.taskify
+  APP_PKG: com.taskify.routine_app
 
 jobs:
   build:
@@ -44,6 +44,28 @@ jobs:
           if [ -f "android/build.gradle.kts" ]; then
             cat ci/root_compile_sdk.kts.txt >> android/build.gradle.kts
           fi
+
+      - name: Enable Core Library Desugaring (for flutter_local_notifications)
+        run: |
+          python3 - << 'PYEOF'
+          path = "android/app/build.gradle.kts"
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          if "isCoreLibraryDesugaringEnabled" not in content:
+              content = content.replace(
+                  "compileOptions {",
+                  "compileOptions {\n        isCoreLibraryDesugaringEnabled = true",
+                  1,
+              )
+
+          if "desugar_jdk_libs" not in content:
+              content += '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n'
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          print("Core library desugaring enabled successfully!")
+          PYEOF
 
       - name: Notification receivers & custom sound files
         run: |
@@ -84,7 +106,6 @@ jobs:
           def attr(name):
               return f"{{{ANDROID_NS}}}{name}"
 
-          # 1. Permissions (AI, speech, notifications, storage)
           permissions = [
               "android.permission.INTERNET",
               "android.permission.RECORD_AUDIO",
@@ -103,7 +124,6 @@ jobs:
                   el.set(attr("name"), p)
                   root.insert(0, el)
 
-          # 2. FileProvider for taskify/sound (matches MainActivity.kt.template)
           provider_auth = "${applicationId}.taskifysounds"
           has_provider = any(
               p.get(attr("authorities")) == provider_auth
@@ -119,7 +139,6 @@ jobs:
               meta.set(attr("name"), "android.support.FILE_PROVIDER_PATHS")
               meta.set(attr("resource"), "@xml/taskify_sound_paths")
 
-          # 3. flutter_local_notifications Receivers
           receivers = [
               ("com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver", "false", None),
               ("com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver", "false", [
@@ -144,7 +163,6 @@ jobs:
           ET.indent(tree, space="    ")
           tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
 
-          # Final XML validation check
           ET.parse(manifest_path)
           print("AndroidManifest.xml validated successfully!")
           PYEOF
@@ -159,11 +177,6 @@ jobs:
           if [ -f "app_icon.png" ]; then
             dart run flutter_launcher_icons
           fi
-
-      - name: Restore stable signing key (keeps Google sign-in working)
-        run: |
-          echo "Yahan apna purana keystore / signing restore step rakhein"
-          # यदि आपके पास KEYSTORE_BASE64 या key.properties वाला पुराना कोड है, तो उसे यहाँ पेस्ट करें
 
       - name: Build Android APK
         run: flutter build apk --split-per-abi

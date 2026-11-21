@@ -16,7 +16,7 @@ void main() async {
 
   final db = AppDatabase();
   await db.init();
-  SoundService.db = db;
+  await SoundService.init(db);
   await db.autoAllocateRollingHabits();
   try {
     await db.rescheduleAllReminders();

@@ -49,7 +49,10 @@ class NotificationService {
     AndroidNotificationSound? sound;
     if (source.startsWith('builtin:')) {
       final key = source.substring(8);
-      if (key != 'default') sound = RawResourceAndroidNotificationSound('sound_$key');
+      if (key != 'default') {
+        final res = SoundService.rawResourceFor(key);
+        if (res != null) sound = RawResourceAndroidNotificationSound(res);
+      }
     } else if (source.startsWith('file:')) {
       final uri = await SoundService.contentUriFor(source.substring(5));
       if (uri != null) sound = UriAndroidNotificationSound(uri);

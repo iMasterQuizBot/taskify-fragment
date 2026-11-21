@@ -5,6 +5,7 @@ import 'app_database.dart';
 import 'app_theme.dart';
 import 'calendar_page.dart';
 import 'routines_page.dart';
+import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
 import 'statistics_page.dart';
 import 'today_page.dart';
@@ -43,11 +44,9 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     pageController = PageController(initialPage: 0);
-    // ऐप खुलने के बाद (पहला फ़्रेम दिखने पर) ही अनुमति माँगें
     WidgetsBinding.instance.addPostFrameCallback((_) => _askNotificationOnce());
   }
 
-  /// सिर्फ़ नोटिफिकेशन की अनुमति, और वह भी एक बार। साउंड/स्टोरेज की अनुमति उसी फ़ीचर पर माँगी जाती है जहाँ ज़रूरत हो।
   Future<void> _askNotificationOnce() async {
     final status = await Permission.notification.status;
     if (status.isDenied) {
@@ -100,6 +99,13 @@ class _MainScreenState extends State<MainScreen> {
     todayKey.currentState?.load();
     statsKey.currentState?.setDate(DateTime.now());
     pageController.animateToPage(0, duration: const Duration(milliseconds: 250), curve: Curves.easeInOut);
+  }
+
+  void _openDeepSeek() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DeepSeekWebScreen()),
+    );
   }
 
   @override
@@ -161,6 +167,7 @@ class _MainScreenState extends State<MainScreen> {
         pageController: pageController,
         selectedIndex: currentIndex,
         onChanged: (i) => pageController.animateToPage(i, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic),
+        onOpenAI: _openDeepSeek,
       ),
     );
   }
@@ -210,11 +217,13 @@ class _LiquidFloatingDock extends StatelessWidget {
   final PageController pageController;
   final int selectedIndex;
   final ValueChanged<int> onChanged;
+  final VoidCallback onOpenAI;
 
   const _LiquidFloatingDock({
     required this.pageController,
     required this.selectedIndex,
     required this.onChanged,
+    required this.onOpenAI,
   });
 
   @override
@@ -230,7 +239,7 @@ class _LiquidFloatingDock extends StatelessWidget {
     return SafeArea(
       bottom: true,
       child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         height: 66,
         decoration: BoxDecoration(
           color: const Color(0xEB151A24),
@@ -242,7 +251,8 @@ class _LiquidFloatingDock extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final tabWidth = constraints.maxWidth / items.length;
+            final totalSlots = items.length + 1;
+            final tabWidth = constraints.maxWidth / totalSlots;
 
             return Stack(
               children: [
@@ -271,30 +281,53 @@ class _LiquidFloatingDock extends StatelessWidget {
                   },
                 ),
                 Row(
-                  children: List.generate(items.length, (i) {
-                    final selected = selectedIndex == i;
-                    return Expanded(
+                  children: [
+                    ...List.generate(items.length, (i) {
+                      final selected = selectedIndex == i;
+                      return Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => onChanged(i),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(items[i].$1, size: 20, color: selected ? Colors.white : AppColors.textMuted),
+                              const SizedBox(height: 2),
+                              Text(
+                                items[i].$2,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                                  color: selected ? Colors.white : AppColors.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    Expanded(
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTap: () => onChanged(i),
+                        onTap: onOpenAI,
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(items[i].$1, size: 21, color: selected ? Colors.white : AppColors.textMuted),
+                            Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.cyan),
                             const SizedBox(height: 2),
                             Text(
-                              items[i].$2,
+                              'AI',
                               style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                                color: selected ? Colors.white : AppColors.textMuted,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.cyan,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    );
-                  }),
+                    ),
+                  ],
                 ),
               ],
             );

@@ -12,17 +12,32 @@ import 'app_database.dart';
 class AiService {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   static const String _keyName = 'gemini_api_key';
+  static const String _deepseekKeyName = 'deepseek_api_key';
 
   static Future<String?> getApiKey() => _storage.read(key: _keyName);
   static Future<void> saveApiKey(String key) => _storage.write(key: _keyName, value: key.trim());
   static Future<void> clearApiKey() => _storage.delete(key: _keyName);
 
+  static Future<String?> getDeepseekKey() => _storage.read(key: _deepseekKeyName);
+  static Future<void> saveDeepseekKey(String key) => _storage.write(key: _deepseekKeyName, value: key.trim());
+  static Future<void> clearDeepseekKey() => _storage.delete(key: _deepseekKeyName);
+
+  /// 'gemini' या 'deepseek'। डिफ़ॉल्ट Gemini।
   final AppDatabase db;
-  final List<Map<String, dynamic>> _history = [];
+  final List<Map<String, dynamic>> _history = []; // Gemini फ़ॉर्मेट
+  final List<Map<String, dynamic>> _dsHistory = []; // DeepSeek / OpenAI फ़ॉर्मेट
 
   AiService(this.db);
 
-  void resetChat() => _history.clear();
+  void resetChat() {
+    _history.clear();
+    _dsHistory.clear();
+  }
+
+  Future<String> getProvider() async {
+    final p = (await db.getSetting('aiProvider'))?.trim();
+    return (p == null || p.isEmpty) ? 'gemini' : p;
+  }
 
   static const List<Map<String, dynamic>> _tools = [
     {
@@ -69,6 +84,57 @@ class AiService {
     },
   ];
 
+  /// DeepSeek/OpenAI फ़ॉर्मेट में वही 3 tools
+  static const List<Map<String, dynamic>> _dsTools = [
+    {
+      'type': 'function',
+      'function': {
+        'name': 'add_task',
+        'description': 'User की routine में नया टास्क जोड़ता है।',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'title': {'type': 'string', 'description': 'टास्क का नाम'},
+            'date': {'type': 'string', 'description': 'YYYY-MM-DD; न दिया हो तो आज'},
+            'start_time': {'type': 'string', 'description': 'शुरू का समय HH:MM (24 घंटे)'},
+            'end_time': {'type': 'string', 'description': 'खत्म का समय HH:MM (वैकल्पिक)'},
+            'category': {'type': 'string', 'description': 'Study, Work, Health, Exercise, Personal, Family, Learning, Other'},
+            'priority': {'type': 'integer', 'description': '1 से 4'},
+          },
+          'required': ['title', 'start_time'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'delete_task',
+        'description': 'नाम के आधार पर टास्क डिलीट करता है।',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'title': {'type': 'string', 'description': 'टास्क का नाम (आंशिक भी चलेगा)'},
+            'date': {'type': 'string', 'description': 'YYYY-MM-DD; न दिया हो तो आज से आगे के सभी'},
+          },
+          'required': ['title'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'list_tasks',
+        'description': 'किसी दिन के टास्क दिखाता है।',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'date': {'type': 'string', 'description': 'YYYY-MM-DD; न दिया हो तो आज'},
+          },
+        },
+      },
+    },
+  ];
+
   Future<String> _systemPrompt() async {
     final name = (await db.getSetting('aiAssistantName'))?.trim();
     final assistant = (name == null || name.isEmpty) ? 'Taskify AI' : name;
@@ -90,7 +156,16 @@ class AiService {
   }
 
   /// यूज़र का संदेश (और चाहें तो फ़ोटो) भेजो, अंतिम जवाब लौटाता है।
+  /// Settings में जो भी provider (Gemini / DeepSeek) चुना है, वही इस्तेमाल होता है।
   Future<String> send({required String text, Uint8List? image, String? imageMime}) async {
+    final provider = await getProvider();
+    if (provider == 'deepseek') {
+      return _sendDeepSeek(text: text, image: image);
+    }
+    return _sendGemini(text: text, image: image, imageMime: imageMime);
+  }
+
+  Future<String> _sendGemini({required String text, Uint8List? image, String? imageMime}) async {
     final apiKey = await getApiKey();
     if (apiKey == null || apiKey.isEmpty) {
       throw Exception('पहले Settings → AI Assistant में अपनी Gemini API key डालें।');
@@ -161,6 +236,94 @@ class AiService {
       _history.add({'role': 'user', 'parts': responses});
     }
     return 'कार्रवाई पूरी हुई।';
+  }
+
+  /// DeepSeek (OpenAI-compatible) API। नोट: DeepSeek photo/इमेज नहीं पढ़ सकता,
+  /// सिर्फ़ text सवाल ही भेजे जाते हैं। फ़ोटो वाले सवाल के लिए Gemini पर स्विच करें।
+  Future<String> _sendDeepSeek({required String text, Uint8List? image}) async {
+    final apiKey = await getDeepseekKey();
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('पहले Settings → AI Assistant में अपनी DeepSeek API key डालें।');
+    }
+    if (image != null) {
+      throw Exception('DeepSeek फ़िलहाल फ़ोटो वाले सवाल नहीं पढ़ सकता। फ़ोटो के लिए Gemini चुनें।');
+    }
+    final model = (await db.getSetting('deepseekModel'))?.trim();
+    final modelName = (model == null || model.isEmpty) ? 'deepseek-chat' : model;
+
+    _dsHistory.add({'role': 'user', 'content': text.isEmpty ? 'इस सवाल को हल करो और समझाओ।' : text});
+
+    final uri = Uri.parse('https://api.deepseek.com/chat/completions');
+    final system = await _systemPrompt();
+
+    for (var round = 0; round < 4; round++) {
+      final body = {
+        'model': modelName,
+        'messages': [
+          {'role': 'system', 'content': system},
+          ..._dsHistory,
+        ],
+        'tools': _dsTools,
+        'temperature': 0.4,
+      };
+
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $apiKey'},
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 60));
+
+      if (resp.statusCode != 200) {
+        _dsHistory.removeLast();
+        throw Exception(_dsErrorMessage(resp.statusCode, resp.body));
+      }
+
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final choices = data['choices'] as List?;
+      if (choices == null || choices.isEmpty) {
+        throw Exception('AI ने जवाब नहीं दिया।');
+      }
+      final message = (choices.first as Map)['message'] as Map<String, dynamic>;
+      final toolCalls = (message['tool_calls'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+      _dsHistory.add({
+        'role': 'assistant',
+        'content': message['content'],
+        if (toolCalls.isNotEmpty) 'tool_calls': toolCalls,
+      });
+
+      if (toolCalls.isEmpty) {
+        final reply = (message['content'] ?? '').toString().trim();
+        return reply.isEmpty ? 'जवाब खाली आया।' : reply;
+      }
+
+      for (final call in toolCalls) {
+        final fn = call['function'] as Map<String, dynamic>;
+        final name = fn['name'].toString();
+        Map<String, dynamic> args = {};
+        try {
+          args = (jsonDecode(fn['arguments'] as String? ?? '{}') as Map).cast<String, dynamic>();
+        } catch (_) {}
+        final result = await _execute(name, args);
+        _dsHistory.add({
+          'role': 'tool',
+          'tool_call_id': call['id'],
+          'content': jsonEncode(result),
+        });
+      }
+    }
+    return 'कार्रवाई पूरी हुई।';
+  }
+
+  String _dsErrorMessage(int code, String body) {
+    try {
+      final msg = (jsonDecode(body)['error']?['message'] ?? '').toString();
+      if (code == 401) return 'DeepSeek API key गलत है। Settings में जाँचें।';
+      if (code == 429) return 'DeepSeek की सीमा/क्रेडिट पूरी हुई। थोड़ी देर बाद कोशिश करें।';
+      if (code == 402) return 'DeepSeek अकाउंट में क्रेडिट/बैलेंस नहीं है।';
+      if (msg.isNotEmpty) return 'AI त्रुटि ($code): $msg';
+    } catch (_) {}
+    return 'AI त्रुटि ($code)';
   }
 
   String _errorMessage(int code, String body) {

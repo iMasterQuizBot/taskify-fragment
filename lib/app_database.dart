@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import 'notification_service.dart';
+import 'sound_service.dart';
 
 class AppDatabase {
   Database? _db;
@@ -176,6 +177,7 @@ class AppDatabase {
               notes: task['notes']?.toString() ?? '',
               reminder: (task['reminder'] as int) == 1,
               subtasks: task['subtasks']?.toString() ?? '',
+              playSound: false,
             );
           }
         }
@@ -226,6 +228,7 @@ class AppDatabase {
     bool reminder = false,
     String subtasks = '',
     String attachmentPath = '',
+    bool playSound = true,
   }) async {
     final now = DateTime.now().toIso8601String();
 
@@ -250,6 +253,9 @@ class AppDatabase {
 
     if (reminder) {
       _scheduleTaskNotification(id, title, date, startMinutes);
+    }
+    if (playSound) {
+      SoundService.play('taskCreated');
     }
     return id;
   }
@@ -290,7 +296,7 @@ class AppDatabase {
     );
 
     try {
-      await flutterLocalNotificationsPlugin.cancel(id);
+      await NotificationService.cancel(id);
     } catch (_) {}
     if (reminder) {
       _scheduleTaskNotification(id, title, DateTime.parse(dateStr), startMinutes);
@@ -344,7 +350,7 @@ class AppDatabase {
       final rowDateStr = row['date'].toString();
 
       try {
-        await flutterLocalNotificationsPlugin.cancel(rowId);
+        await NotificationService.cancel(rowId);
       } catch (_) {}
 
       await db.update(
@@ -383,6 +389,47 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+
+    if (status == 'completed') {
+      SoundService.play('taskCompleted');
+      final row = await db.query('tasks', where: 'id = ?', whereArgs: [id], limit: 1);
+      if (row.isNotEmpty && await allDoneOn(row.first['date'].toString())) {
+        SoundService.play('allCompleted');
+      }
+    }
+  }
+
+  /// उस दिन के सारे टास्क पूरे हैं या नहीं
+  Future<bool> allDoneOn(String dateStr) async {
+    final rows = await db.query('tasks', where: 'date = ?', whereArgs: [dateStr]);
+    return rows.isNotEmpty && rows.every((r) => r['status'] == 'completed');
+  }
+
+  /// नाम (आंशिक भी) से टास्क खोजना। date न दी हो तो आज से आगे के सभी।
+  Future<List<Map<String, dynamic>>> searchTasks(String title, {DateTime? date}) async {
+    final like = '%${title.trim()}%';
+    if (date != null) {
+      return db.query('tasks',
+          where: 'title LIKE ? AND date = ?', whereArgs: [like, dateKey(date)]);
+    }
+    return db.query('tasks',
+        where: 'title LIKE ? AND date >= ?', whereArgs: [like, dateKey(DateTime.now())]);
+  }
+
+  /// किसी एक टास्क का नोटिफिकेशन चालू/बंद
+  Future<void> setTaskReminder(int id, bool on) async {
+    await db.update('tasks', {'reminder': on ? 1 : 0, 'updatedAt': DateTime.now().toIso8601String()},
+        where: 'id = ?', whereArgs: [id]);
+    if (!on) {
+      await NotificationService.cancel(id);
+      return;
+    }
+    final row = await db.query('tasks', where: 'id = ?', whereArgs: [id], limit: 1);
+    if (row.isNotEmpty) {
+      final r = row.first;
+      await _scheduleTaskNotification(id, r['title'].toString(),
+          DateTime.parse(r['date'].toString()), r['startMinutes'] as int);
+    }
   }
 
   Future<void> updateSubtasks(int id, String subtasksJson) async {
@@ -399,7 +446,7 @@ class AppDatabase {
 
   Future<void> deleteTask(int id) async {
     try {
-      await flutterLocalNotificationsPlugin.cancel(id);
+      await NotificationService.cancel(id);
     } catch (_) {}
     await db.delete('tasks', where: 'id = ?', whereArgs: [id]);
   }
@@ -411,7 +458,7 @@ class AppDatabase {
 
   Future<void> deleteAll() async {
     try {
-      await flutterLocalNotificationsPlugin.cancelAll();
+      await NotificationService.cancelAll();
     } catch (_) {}
     await db.delete('tasks');
   }
@@ -495,7 +542,8 @@ class AppDatabase {
     try {
       final leadStr = await getSetting('notificationLeadTime');
       final leadMinutes = int.tryParse(leadStr ?? '5') ?? 5;
-      final soundKey = await getSetting('notificationSound') ?? 'default';
+      final enabled = (await getSetting('notificationsEnabled')) != '0';
+      final alarmEnabled = (await getSetting('alarmEnabled')) != '0';
 
       await NotificationService.scheduleTask(
         id: id,
@@ -503,10 +551,10 @@ class AppDatabase {
         date: date,
         startMinutes: startMinutes,
         leadMinutes: leadMinutes,
-        soundKey: soundKey,
+        enabled: enabled,
+        alarmEnabled: alarmEnabled,
       );
     } catch (e) {
-      // पहले यह error चुपचाप दब जाता था, अब debug log में दिखेगा
       debugPrint('Notification schedule error (task $id): $e');
     }
   }

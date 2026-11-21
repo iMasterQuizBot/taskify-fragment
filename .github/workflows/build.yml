@@ -120,6 +120,29 @@ jobs:
                   f.write(m_code)
           '
 
+      - name: Notification receivers & custom sound files
+        run: |
+          python3 - <<'PY'
+          import os, shutil, glob
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(manifest_path):
+              m = open(manifest_path).read()
+              if "ScheduledNotificationBootReceiver" not in m and "</application>" in m:
+                  block = (
+                      '<receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false"/>'
+                      '<receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="false">'
+                      '<intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/>'
+                      '<action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter></receiver>'
+                  )
+                  m = m.replace("</application>", block + "\n    </application>")
+                  open(manifest_path, "w").write(m)
+          raw_dir = "android/app/src/main/res/raw"
+          os.makedirs(raw_dir, exist_ok=True)
+          for f in glob.glob("assets/sounds/*.wav"):
+              shutil.copy(f, raw_dir)
+          print("notification setup done")
+          PY
+
       - name: Install Dependencies & Clean
         run: |
           flutter pub get

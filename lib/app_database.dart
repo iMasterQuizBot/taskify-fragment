@@ -552,7 +552,7 @@ class AppDatabase {
         startMinutes: startMinutes,
         leadMinutes: leadMinutes,
         enabled: enabled,
-        alarmEnabled: alarmEnabled,
+        alarmEnabled: alarmEnabled && enabled,
       );
     } catch (e) {
       debugPrint('Notification schedule error (task $id): $e');

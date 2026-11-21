@@ -708,7 +708,39 @@ class _SettingsPageState extends State<SettingsPage> {
         physics: const ClampingScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 120),
         children: [
-          const SectionLabel('Productivity & Notifications'),
+          // ===================== App Basics =====================
+          const SectionLabel('App Basics'),
+          _settingsTile(
+            icon: Icons.title_rounded,
+            color: AppColors.violet,
+            title: 'App display name',
+            subtitle: appTitle,
+            onTap: editAppTitle,
+          ),
+          _settingsTile(
+            icon: Icons.palette_rounded,
+            color: AppColors.cyan,
+            title: 'Appearance',
+            subtitle: 'Dark or Light theme.',
+            onTap: chooseTheme,
+          ),
+          _settingsTile(
+            icon: Icons.schedule_rounded,
+            color: AppColors.amber,
+            title: 'Routine window',
+            subtitle: '${formatMinutes(routineStartMinutes)} – ${formatMinutes(routineEndMinutes)}',
+            onTap: editRoutineWindow,
+          ),
+          _settingsTile(
+            icon: Icons.speed_rounded,
+            color: AppColors.cyan,
+            title: 'Display refresh rate',
+            subtitle: '$refreshRateMode Hz (Locked)',
+            onTap: chooseRefreshRate,
+          ),
+
+          // ===================== Notifications & Alarms =====================
+          const SectionLabel('Notifications & Alarms'),
           _settingsTile(
             icon: Icons.notifications_active_rounded,
             color: AppColors.amber,
@@ -734,6 +766,40 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
           ),
+          _settingsTile(
+            icon: Icons.notification_add_rounded,
+            color: AppColors.amber,
+            title: 'Test Notification',
+            subtitle: 'Abhi ek test notification bhejein',
+            onTap: testNotification,
+          ),
+          _settingsTile(
+            icon: Icons.verified_user_rounded,
+            color: AppColors.amber,
+            title: 'Notification Permissions',
+            subtitle: 'Notification और Alarm की अनुमति जाँचें / दें',
+            onTap: checkNotificationPermissions,
+          ),
+          _settingsTile(
+            icon: Icons.music_note_rounded,
+            color: AppColors.amber,
+            title: 'Sound & Notifications',
+            subtitle: 'टास्क बनाने/पूरा होने, नोटिफिकेशन और अलार्म के लिए अपनी फ़ाइल चुनें।',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SoundSettingsPage(db: widget.db))),
+          ),
+
+          // ===================== AI Assistant =====================
+          const SectionLabel('AI Assistant'),
+          _settingsTile(
+            icon: Icons.auto_awesome_rounded,
+            color: AppColors.cyan,
+            title: 'AI Assistant',
+            subtitle: 'Gemini / DeepSeek API key, असिस्टेंट का नाम और मॉडल।',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AiSettingsPage(db: widget.db))),
+          ),
+
+          // ===================== Productivity Tools =====================
+          const SectionLabel('Productivity Tools'),
           GlassCard(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: EdgeInsets.zero,
@@ -762,7 +828,6 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
           ),
-          const SectionLabel('Power Tools & Offline Suite'),
           GlassCard(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: EdgeInsets.zero,
@@ -799,6 +864,9 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: 'Compiles full month score into a clean Report text file.',
             onTap: exportMonthlyReportText,
           ),
+
+          // ===================== Backup & Sync =====================
+          const SectionLabel('Backup & Sync'),
           GlassCard(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: EdgeInsets.zero,
@@ -835,40 +903,29 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: pickAutoBackupFolder,
           ),
           _settingsTile(
-            icon: Icons.notification_add_rounded,
-            color: AppColors.amber,
-            title: 'Test Notification',
-            subtitle: 'Abhi ek test notification bhejein',
-            onTap: testNotification,
-          ),
-          _settingsTile(
-            icon: Icons.verified_user_rounded,
-            color: AppColors.amber,
-            title: 'Notification Permissions',
-            subtitle: 'Notification और Alarm की अनुमति जाँचें / दें',
-            onTap: checkNotificationPermissions,
-          ),
-          _settingsTile(
-            icon: Icons.music_note_rounded,
-            color: AppColors.amber,
-            title: 'Sound & Notifications',
-            subtitle: 'टास्क बनाने/पूरा होने, नोटिफिकेशन और अलार्म के लिए अपनी फ़ाइल चुनें।',
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SoundSettingsPage(db: widget.db))),
-          ),
-          _settingsTile(
-            icon: Icons.auto_awesome_rounded,
-            color: AppColors.cyan,
-            title: 'AI Assistant',
-            subtitle: 'Gemini API key, असिस्टेंट का नाम और मॉडल।',
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AiSettingsPage(db: widget.db))),
-          ),
-          _settingsTile(
             icon: Icons.cloud_sync_rounded,
             color: AppColors.emerald,
             title: 'Backup to Google Drive',
             subtitle: 'बैकअप फ़ाइल बनाकर Drive या किसी भी ऐप में शेयर करें (बिना लॉगिन)।',
             onTap: handleGoogleDriveOptions,
           ),
+          _settingsTile(
+            icon: Icons.file_download_outlined,
+            color: AppColors.emerald,
+            title: 'Export Backup File (.json)',
+            subtitle: 'Pick folder & export without permission errors.',
+            onTap: exportBackupFile,
+          ),
+          _settingsTile(
+            icon: Icons.file_upload_outlined,
+            color: AppColors.blue,
+            title: 'Import Backup File (.json)',
+            subtitle: 'Browse storage & select .json to restore.',
+            onTap: importBackupFile,
+          ),
+
+          // ===================== Security =====================
+          const SectionLabel('Security'),
           GlassCard(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: EdgeInsets.zero,
@@ -894,51 +951,9 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
           ),
-          const SectionLabel('App controls'),
-          _settingsTile(
-            icon: Icons.title_rounded,
-            color: AppColors.violet,
-            title: 'App display name',
-            subtitle: appTitle,
-            onTap: editAppTitle,
-          ),
-          _settingsTile(
-            icon: Icons.schedule_rounded,
-            color: AppColors.amber,
-            title: 'Routine window',
-            subtitle: '${formatMinutes(routineStartMinutes)} – ${formatMinutes(routineEndMinutes)}',
-            onTap: editRoutineWindow,
-          ),
-          _settingsTile(
-            icon: Icons.speed_rounded,
-            color: AppColors.cyan,
-            title: 'Display refresh rate',
-            subtitle: '$refreshRateMode Hz (Locked)',
-            onTap: chooseRefreshRate,
-          ),
-          const SectionLabel('Customization'),
-          _settingsTile(
-            icon: Icons.palette_rounded,
-            color: AppColors.cyan,
-            title: 'Appearance',
-            subtitle: 'Dark or Light theme.',
-            onTap: chooseTheme,
-          ),
-          const SectionLabel('Backup & data'),
-          _settingsTile(
-            icon: Icons.file_download_outlined,
-            color: AppColors.emerald,
-            title: 'Export Backup File (.json)',
-            subtitle: 'Pick folder & export without permission errors.',
-            onTap: exportBackupFile,
-          ),
-          _settingsTile(
-            icon: Icons.file_upload_outlined,
-            color: AppColors.blue,
-            title: 'Import Backup File (.json)',
-            subtitle: 'Browse storage & select .json to restore.',
-            onTap: importBackupFile,
-          ),
+
+          // ===================== Danger Zone =====================
+          const SectionLabel('Danger Zone'),
           _settingsTile(
             icon: Icons.delete_forever_rounded,
             color: AppColors.rose,

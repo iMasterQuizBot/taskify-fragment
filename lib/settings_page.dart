@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
-import 'google_drive_service.dart';
+import 'package:share_plus/share_plus.dart';
 import 'helpers.dart';
 import 'notification_service.dart';
 import 'native_storage_explorer_dialog.dart';
@@ -36,7 +36,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final GoogleDriveService _driveService = GoogleDriveService();
 
   int streakTarget = 80;
   bool carryForward = false;
@@ -44,6 +43,7 @@ class _SettingsPageState extends State<SettingsPage> {
   int routineStartMinutes = 360;
   int routineEndMinutes = 720;
   int notificationLeadTime = 5;
+  bool notifOn = true;
   String refreshRateMode = '120';
 
   int freezeTokens = 2;
@@ -68,6 +68,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final savedStart = await widget.db.getSetting('startMinutes');
     final savedEnd = await widget.db.getSetting('endMinutes');
     final savedLead = await widget.db.getSetting('notificationLeadTime');
+    final savedNotifOn = await widget.db.getSetting('notificationsEnabled');
     final savedRefresh = await widget.db.getSetting('refreshRateMode');
     final tokens = await widget.db.getSetting('streakFreezeTokens');
     final sub = await widget.db.getSetting('featureSubtasksEnabled');
@@ -86,6 +87,7 @@ class _SettingsPageState extends State<SettingsPage> {
       routineStartMinutes = int.tryParse(savedStart ?? '') ?? 360;
       routineEndMinutes = int.tryParse(savedEnd ?? '') ?? 720;
       notificationLeadTime = int.tryParse(savedLead ?? '5') ?? 5;
+      notifOn = savedNotifOn != '0';
       refreshRateMode = savedRefresh ?? '120';
       freezeTokens = int.tryParse(tokens ?? '2') ?? 2;
       subtasksEnabled = sub != '0';
@@ -122,7 +124,7 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Google Drive Options'),
-        content: const Text('Backup to Google Drive (hidden app folder), copy backup to clipboard, or set an external link / webhook:'),
+        content: const Text('बैकअप फ़ाइल बनाकर Google Drive या किसी भी ऐप में भेजें, clipboard में कॉपी करें, या लिंक सेट करें:'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton.tonal(
@@ -135,7 +137,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, 'backup_now'),
-            child: const Text('Backup Now (Drive)'),
+            child: const Text('Share to Drive'),
           ),
         ],
       ),
@@ -207,13 +209,8 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// बैकअप फ़ाइल बनाकर शेयर शीट खोलता है। वहाँ Google Drive चुनकर सेव करें (कोई Google लॉगिन नहीं)।
   Future<void> _performGoogleDriveBackup() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.violet)),
-    );
-
     try {
       final json = await widget.db.exportJson();
       final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
@@ -223,27 +220,14 @@ class _SettingsPageState extends State<SettingsPage> {
       final tempFile = File('${tempDir.path}/$fileName');
       await tempFile.writeAsString(json);
 
-      final success = await _driveService.uploadBackup(tempFile, fileName);
-
-      if (mounted) Navigator.pop(context);
-
-      if (success) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Backup successfully saved to Google Drive!')),
-        );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('❌ ${_driveService.lastError ?? 'Backup failed or cancelled.'}')),
-        );
-      }
-    } catch (e) {
-      if (mounted) Navigator.pop(context);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+      await Share.shareXFiles(
+        [XFile(tempFile.path, mimeType: 'application/json')],
+        subject: fileName,
+        text: 'Taskify बैकअप',
       );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('बैकअप नहीं बन सका: $e')));
     }
   }
 
@@ -738,6 +722,24 @@ class _SettingsPageState extends State<SettingsPage> {
             child: SwitchListTile(
               dense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              secondary: const Icon(Icons.notifications_rounded, color: AppColors.amber),
+              title: const Text('Notification चालू / बंद'),
+              subtitle: const Text('बंद करने पर टास्क के नोटिफिकेशन और अलार्म नहीं आएँगे।'),
+              value: notifOn,
+              onChanged: (v) async {
+                await widget.db.setSetting('notificationsEnabled', v ? '1' : '0');
+                if (!v) await NotificationService.cancelAll();
+                await widget.db.rescheduleAllReminders();
+                if (mounted) setState(() => notifOn = v);
+              },
+            ),
+          ),
+          GlassCard(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: EdgeInsets.zero,
+            child: SwitchListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
               secondary: Container(
                 width: 38,
                 height: 38,
@@ -863,8 +865,8 @@ class _SettingsPageState extends State<SettingsPage> {
           _settingsTile(
             icon: Icons.cloud_sync_rounded,
             color: AppColors.emerald,
-            title: 'Google Drive Backup',
-            subtitle: 'Securely save backup in hidden Google Drive folder.',
+            title: 'Backup to Google Drive',
+            subtitle: 'बैकअप फ़ाइल बनाकर Drive या किसी भी ऐप में शेयर करें (बिना लॉगिन)।',
             onTap: handleGoogleDriveOptions,
           ),
           GlassCard(

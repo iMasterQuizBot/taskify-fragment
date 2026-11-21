@@ -9,6 +9,7 @@ import 'app_theme.dart';
 import 'focus_timer_dialog.dart';
 import 'helpers.dart';
 import 'task_dialog.dart';
+import 'ai_assistant_screen.dart';
 
 class TodayPage extends StatefulWidget {
   final AppDatabase db;
@@ -272,6 +273,24 @@ class TodayPageState extends State<TodayPage> {
                 ),
               ]
             : [
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: IconButton(
+                    tooltip: 'AI Assistant',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AiAssistantScreen(db: widget.db, onChanged: widget.onChanged),
+                      ),
+                    ),
+                    icon: const Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.cyan),
+                  ),
+                ),
                 Container(
                   margin: const EdgeInsets.only(right: 8),
                   decoration: BoxDecoration(
@@ -574,6 +593,25 @@ class TodayPageState extends State<TodayPage> {
     );
   }
 
+  Widget _reminderToggle(Map<String, dynamic> task) {
+    final on = task['reminder'] == 1 || task['reminder'] == true;
+    return IconButton(
+      tooltip: on ? 'Notification बंद करें' : 'Notification चालू करें',
+      visualDensity: VisualDensity.compact,
+      icon: Icon(
+        on ? Icons.notifications_active_rounded : Icons.notifications_off_outlined,
+        size: 19,
+        color: on ? AppColors.amber : AppColors.textMuted,
+      ),
+      onPressed: () async {
+        final newOn = !on;
+        await widget.db.setTaskReminder(task['id'] as int, newOn);
+        if (!mounted) return;
+        setState(() => task['reminder'] = newOn ? 1 : 0);
+      },
+    );
+  }
+
   Widget _taskCard(Map<String, dynamic> task) {
     final id = task['id'] as int;
     final status = task['status'] as String;
@@ -641,6 +679,7 @@ class TodayPageState extends State<TodayPage> {
                 else
                   _statusButton(task, accent),
                 const SizedBox(width: 11),
+                if (!isSelectionMode) _reminderToggle(task),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import 'app_database.dart';
 import 'notification_service.dart';
+import 'sound_service.dart';
 import 'taskify_app.dart';
 
 void main() async {
@@ -16,6 +17,7 @@ void main() async {
 
   final db = AppDatabase();
   await db.init();
+  SoundService.db = db;
   await db.autoAllocateRollingHabits();
   try {
     await db.rescheduleAllReminders();

@@ -16,6 +16,8 @@ class SoundSettingsPage extends StatefulWidget {
 class _SoundSettingsPageState extends State<SoundSettingsPage> {
   bool _notifyOn = true;
   bool _alarmOn = true;
+  bool _tapSoundOn = SoundService.tapSoundOn;
+  bool _hapticOn = SoundService.hapticOn;
   final Map<String, String> _sources = {};
 
   @override
@@ -72,19 +74,40 @@ class _SoundSettingsPageState extends State<SoundSettingsPage> {
   }
 
   Future<void> _chooseBuiltin(SoundSlot slot) async {
+    final entries = SoundService.builtinLabels.entries.toList();
     final chosen = await showDialog<String>(
       context: context,
-      builder: (ctx) => SimpleDialog(
+      builder: (ctx) => AlertDialog(
         title: Text(slot.label),
-        children: [
-          for (final e in builtinLabels.entries)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, 'builtin:${e.key}'),
-              child: Text(e.value),
-            ),
+        contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: entries.length,
+            itemBuilder: (_, i) {
+              final e = entries[i];
+              return ListTile(
+                dense: true,
+                title: Text(e.value),
+                trailing: e.key == 'default'
+                    ? null
+                    : IconButton(
+                        tooltip: 'सुनें',
+                        icon: const Icon(Icons.play_circle_outline_rounded, color: AppColors.cyan),
+                        onPressed: () => SoundService.playSource('builtin:${e.key}'),
+                      ),
+                onTap: () => Navigator.pop(ctx, 'builtin:${e.key}'),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
         ],
       ),
     );
+    await SoundService.stopPreview();
     if (chosen == null) return;
     await SoundService.setSource(slot.id, chosen);
     await _load();
@@ -116,6 +139,26 @@ class _SoundSettingsPageState extends State<SoundSettingsPage> {
             subtitle: const Text('टास्क शुरू होने के ठीक समय पर अलार्म साउंड बजेगा।'),
             value: _alarmOn,
             onChanged: _setAlarm,
+          ),
+          const SizedBox(height: 8),
+          _sectionTitle('टैप फ़ीडबैक'),
+          SwitchListTile(
+            title: const Text('टैप पर क्लिक साउंड'),
+            subtitle: const Text('ऐप में कहीं भी छोटा टैप करने पर हल्की क्लिक आवाज़।'),
+            value: _tapSoundOn,
+            onChanged: (v) async {
+              await SoundService.setTapSound(v);
+              setState(() => _tapSoundOn = v);
+            },
+          ),
+          SwitchListTile(
+            title: const Text('हैप्टिक (वाइब्रेशन)'),
+            subtitle: const Text('टैप, टास्क बनाने और पूरा करने पर हल्का वाइब्रेशन।'),
+            value: _hapticOn,
+            onChanged: (v) async {
+              await SoundService.setHaptic(v);
+              setState(() => _hapticOn = v);
+            },
           ),
           const SizedBox(height: 8),
           _sectionTitle('साउंड (आपकी फ़ाइल या built-in)'),
@@ -158,7 +201,7 @@ class _SoundSettingsPageState extends State<SoundSettingsPage> {
                     },
                     itemBuilder: (_) => const [
                       PopupMenuItem(value: 'file', child: Text('फ़ाइल से चुनें (mp3/wav…)')),
-                      PopupMenuItem(value: 'builtin', child: Text('Built-in से चुनें')),
+                      PopupMenuItem(value: 'builtin', child: Text('ऐप की साउंड लिस्ट से चुनें')),
                       PopupMenuItem(value: 'reset', child: Text('Default पर वापस')),
                     ],
                   ),

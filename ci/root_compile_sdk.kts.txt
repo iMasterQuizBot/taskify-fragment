@@ -1,0 +1,16 @@
+// TASKIFY_COMPILE_SDK: सभी Android modules (plugins सहित) को compileSdk 36 पर रखें
+subprojects {
+    afterEvaluate {
+        val androidExt = extensions.findByName("android")
+        if (androidExt != null) {
+            try {
+                androidExt.javaClass
+                    .getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType)
+                    .invoke(androidExt, 36)
+            } catch (e: Exception) {
+                println("compileSdk override skipped: " + e.message)
+            }
+        }
+    }
+}
+

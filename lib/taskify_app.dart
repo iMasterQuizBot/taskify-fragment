@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
 import 'main_screen.dart';
+import 'tap_feedback.dart';
 
 class MyDailyRoutineApp extends StatefulWidget {
   final AppDatabase db;
@@ -219,6 +220,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
     return MaterialApp(
       title: appTitle,
       debugShowCheckedModeBanner: false,
+      builder: (context, child) => TapFeedbackLayer(child: child ?? const SizedBox.shrink()),
       themeMode: themeMode,
       theme: lightTheme,
       darkTheme: darkTheme,

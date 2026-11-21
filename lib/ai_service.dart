@@ -1,0 +1,235 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+
+import 'app_database.dart';
+
+/// Gemini API. Key यूज़र अपने फ़ोन में डालता है (flutter_secure_storage में, सुरक्षित)।
+/// कोई बैकएंड नहीं: ऐप सीधे Google के API से बात करता है।
+class AiService {
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const String _keyName = 'gemini_api_key';
+
+  static Future<String?> getApiKey() => _storage.read(key: _keyName);
+  static Future<void> saveApiKey(String key) => _storage.write(key: _keyName, value: key.trim());
+  static Future<void> clearApiKey() => _storage.delete(key: _keyName);
+
+  final AppDatabase db;
+  final List<Map<String, dynamic>> _history = [];
+
+  AiService(this.db);
+
+  void resetChat() => _history.clear();
+
+  static const List<Map<String, dynamic>> _tools = [
+    {
+      'functionDeclarations': [
+        {
+          'name': 'add_task',
+          'description': 'User की routine में नया टास्क जोड़ता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'title': {'type': 'STRING', 'description': 'टास्क का नाम'},
+              'date': {'type': 'STRING', 'description': 'YYYY-MM-DD; न दिया हो तो आज'},
+              'start_time': {'type': 'STRING', 'description': 'शुरू का समय HH:MM (24 घंटे)'},
+              'end_time': {'type': 'STRING', 'description': 'खत्म का समय HH:MM (वैकल्पिक)'},
+              'category': {'type': 'STRING', 'description': 'Study, Work, Health, Exercise, Personal, Family, Learning, Other'},
+              'priority': {'type': 'INTEGER', 'description': '1 से 4'},
+            },
+            'required': ['title', 'start_time'],
+          },
+        },
+        {
+          'name': 'delete_task',
+          'description': 'नाम के आधार पर टास्क डिलीट करता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'title': {'type': 'STRING', 'description': 'टास्क का नाम (आंशिक भी चलेगा)'},
+              'date': {'type': 'STRING', 'description': 'YYYY-MM-DD; न दिया हो तो आज से आगे के सभी'},
+            },
+            'required': ['title'],
+          },
+        },
+        {
+          'name': 'list_tasks',
+          'description': 'किसी दिन के टास्क दिखाता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'date': {'type': 'STRING', 'description': 'YYYY-MM-DD; न दिया हो तो आज'},
+            },
+          },
+        },
+      ],
+    },
+  ];
+
+  Future<String> _systemPrompt() async {
+    final name = (await db.getSetting('aiAssistantName'))?.trim();
+    final assistant = (name == null || name.isEmpty) ? 'Taskify AI' : name;
+    final now = DateTime.now();
+    final today = DateFormat('yyyy-MM-dd').format(now);
+    final time = DateFormat('HH:mm').format(now);
+    return '''तुम "$assistant" हो, Taskify ऐप के अंदर का सहायक।
+आज की तारीख: $today, अभी का समय: $time।
+- यूज़र की भाषा (हिंदी, अंग्रेज़ी या मिक्स) में छोटा, साफ़ जवाब दो।
+- टास्क जोड़ना, हटाना या दिखाना हो तो दिए गए tools का इस्तेमाल करो, फिर नतीजा एक लाइन में बताओ।
+- अगर कोई फ़ोटो सवाल की हो, तो सवाल को हल करो और चरण-दर-चरण आसान भाषा में समझाओ।
+- जो पक्का न हो, वह साफ़ बताओ।''';
+  }
+
+  /// यूज़र का संदेश (और चाहें तो फ़ोटो) भेजो, अंतिम जवाब लौटाता है।
+  Future<String> send({required String text, Uint8List? image, String? imageMime}) async {
+    final apiKey = await getApiKey();
+    if (apiKey == null || apiKey.isEmpty) {
+      throw Exception('पहले Settings → AI Assistant में अपनी Gemini API key डालें।');
+    }
+    final model = (await db.getSetting('geminiModel'))?.trim();
+    final modelName = (model == null || model.isEmpty) ? 'gemini-2.5-flash' : model;
+
+    final parts = <Map<String, dynamic>>[];
+    if (image != null) {
+      parts.add({
+        'inlineData': {'mimeType': imageMime ?? 'image/jpeg', 'data': base64Encode(image)},
+      });
+    }
+    parts.add({'text': text.isEmpty ? 'इस सवाल को हल करो और समझाओ।' : text});
+    _history.add({'role': 'user', 'parts': parts});
+
+    final uri = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey',
+    );
+    final system = await _systemPrompt();
+
+    for (var round = 0; round < 4; round++) {
+      final body = {
+        'systemInstruction': {
+          'parts': [
+            {'text': system},
+          ],
+        },
+        'contents': _history,
+        'tools': _tools,
+        'generationConfig': {'temperature': 0.4},
+      };
+
+      final resp = await http
+          .post(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode(body))
+          .timeout(const Duration(seconds: 60));
+
+      if (resp.statusCode != 200) {
+        _history.removeLast();
+        throw Exception(_errorMessage(resp.statusCode, resp.body));
+      }
+
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final candidates = data['candidates'] as List?;
+      if (candidates == null || candidates.isEmpty) {
+        throw Exception('AI ने जवाब नहीं दिया (शायद सुरक्षा फ़िल्टर)।');
+      }
+      final modelContent = (candidates.first as Map)['content'] as Map<String, dynamic>;
+      final modelParts = (modelContent['parts'] as List? ?? []).cast<Map<String, dynamic>>();
+      _history.add({'role': 'model', 'parts': modelParts});
+
+      final calls = modelParts.where((p) => p.containsKey('functionCall')).toList();
+      if (calls.isEmpty) {
+        final reply = modelParts.map((p) => p['text']?.toString() ?? '').join().trim();
+        return reply.isEmpty ? 'जवाब खाली आया।' : reply;
+      }
+
+      final responses = <Map<String, dynamic>>[];
+      for (final c in calls) {
+        final fc = c['functionCall'] as Map<String, dynamic>;
+        final name = fc['name'].toString();
+        final args = (fc['args'] as Map?)?.cast<String, dynamic>() ?? {};
+        final result = await _execute(name, args);
+        responses.add({
+          'functionResponse': {'name': name, 'response': result},
+        });
+      }
+      _history.add({'role': 'user', 'parts': responses});
+    }
+    return 'कार्रवाई पूरी हुई।';
+  }
+
+  String _errorMessage(int code, String body) {
+    try {
+      final msg = (jsonDecode(body)['error']?['message'] ?? '').toString();
+      if (code == 400 && msg.contains('API key')) return 'API key गलत है। Settings में जाँचें।';
+      if (code == 429) return 'Gemini की सीमा पूरी हुई। थोड़ी देर बाद कोशिश करें।';
+      if (msg.isNotEmpty) return 'AI त्रुटि ($code): $msg';
+    } catch (_) {}
+    return 'AI त्रुटि ($code)';
+  }
+
+  DateTime _parseDate(dynamic v) {
+    if (v == null) return DateTime.now();
+    try {
+      final d = DateTime.parse(v.toString());
+      return DateTime(d.year, d.month, d.day);
+    } catch (_) {
+      return DateTime.now();
+    }
+  }
+
+  int? _parseTime(dynamic v) {
+    if (v == null) return null;
+    final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(v.toString().trim());
+    if (m == null) return null;
+    return int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!);
+  }
+
+  Future<Map<String, dynamic>> _execute(String name, Map<String, dynamic> args) async {
+    try {
+      switch (name) {
+        case 'add_task':
+          final start = _parseTime(args['start_time']);
+          if (start == null) return {'error': 'start_time HH:MM में चाहिए'};
+          final date = _parseDate(args['date']);
+          final end = _parseTime(args['end_time']);
+          final id = await db.addTask(
+            date: date,
+            title: (args['title'] ?? 'नया टास्क').toString(),
+            startMinutes: start,
+            endMinutes: end,
+            category: (args['category'] ?? 'Other').toString(),
+            priority: int.tryParse('${args['priority'] ?? 2}') ?? 2,
+            reminder: true,
+          );
+          return {'ok': true, 'id': id, 'date': DateFormat('yyyy-MM-dd').format(date)};
+
+        case 'delete_task':
+          final rows = await db.searchTasks(
+            (args['title'] ?? '').toString(),
+            date: args['date'] == null ? null : _parseDate(args['date']),
+          );
+          for (final r in rows) {
+            await db.deleteTask(r['id'] as int);
+          }
+          return {'deleted': rows.length, 'titles': rows.map((r) => r['title']).toList()};
+
+        case 'list_tasks':
+          final rows = await db.getTasks(_parseDate(args['date']));
+          return {
+            'tasks': rows
+                .map((r) => {
+                      'title': r['title'],
+                      'status': r['status'],
+                      'startMinutes': r['startMinutes'],
+                    })
+                .toList(),
+          };
+
+        default:
+          return {'error': 'अज्ञात कार्य: $name'};
+      }
+    } catch (e) {
+      return {'error': e.toString()};
+    }
+  }
+}

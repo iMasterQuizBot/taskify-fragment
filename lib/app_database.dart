@@ -1,12 +1,10 @@
 import 'dart:convert';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
-import 'package:timezone/timezone.dart' as tz;
 
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
+import 'notification_service.dart';
 
 class AppDatabase {
   Database? _db;
@@ -497,33 +495,38 @@ class AppDatabase {
     try {
       final leadStr = await getSetting('notificationLeadTime');
       final leadMinutes = int.tryParse(leadStr ?? '5') ?? 5;
+      final soundKey = await getSetting('notificationSound') ?? 'default';
 
-      final hour = startMinutes ~/ 60;
-      final minute = startMinutes % 60;
-
-      final taskTime = DateTime(date.year, date.month, date.day, hour, minute);
-      final alertTime = taskTime.subtract(Duration(minutes: leadMinutes));
-
-      if (alertTime.isBefore(DateTime.now())) return;
-
-      const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-        'taskify_alerts',
-        'Task Reminders',
-        channelDescription: 'On-time routine notifications',
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
+      await NotificationService.scheduleTask(
+        id: id,
+        title: title,
+        date: date,
+        startMinutes: startMinutes,
+        leadMinutes: leadMinutes,
+        soundKey: soundKey,
       );
+    } catch (e) {
+      // पहले यह error चुपचाप दब जाता था, अब debug log में दिखेगा
+      debugPrint('Notification schedule error (task $id): $e');
+    }
+  }
 
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        id,
-        'Upcoming in $leadMinutes mins',
-        title,
-        tz.TZDateTime.from(alertTime, tz.local),
-        const NotificationDetails(android: androidDetails),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+  /// ऐप खुलने पर आने वाले सभी रिमाइंडर फिर से शेड्यूल करता है (रीबूट/अपडेट के बाद भी)।
+  Future<void> rescheduleAllReminders() async {
+    final today = dateKey(DateTime.now());
+    final rows = await db.query(
+      'tasks',
+      where: "reminder = 1 AND status != 'completed' AND date >= ?",
+      whereArgs: [today],
+    );
+    for (final row in rows) {
+      final startMinutes = row['startMinutes'] as int;
+      await _scheduleTaskNotification(
+        row['id'] as int,
+        row['title'].toString(),
+        DateTime.parse(row['date'].toString()),
+        startMinutes,
       );
-    } catch (_) {}
+    }
   }
 }

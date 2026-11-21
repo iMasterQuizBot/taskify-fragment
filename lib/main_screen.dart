@@ -43,16 +43,16 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     pageController = PageController(initialPage: 0);
-    _requestAllRequiredPermissions();
+    // ऐप खुलने के बाद (पहला फ़्रेम दिखने पर) ही अनुमति माँगें
+    WidgetsBinding.instance.addPostFrameCallback((_) => _askNotificationOnce());
   }
 
-  Future<void> _requestAllRequiredPermissions() async {
-    await [
-      Permission.notification,
-      Permission.storage,
-      Permission.audio,
-      Permission.manageExternalStorage,
-    ].request();
+  /// सिर्फ़ नोटिफिकेशन की अनुमति, और वह भी एक बार। साउंड/स्टोरेज की अनुमति उसी फ़ीचर पर माँगी जाती है जहाँ ज़रूरत हो।
+  Future<void> _askNotificationOnce() async {
+    final status = await Permission.notification.status;
+    if (status.isDenied) {
+      await Permission.notification.request();
+    }
   }
 
   @override

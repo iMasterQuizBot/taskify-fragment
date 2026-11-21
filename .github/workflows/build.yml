@@ -108,7 +108,8 @@ jobs:
                   "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
                   "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
                   "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
-                  "<uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\"/>"
+                  "<uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\"/>",
+                  "<uses-permission android:name=\"android.permission.VIBRATE\"/>"
               ]
               perm_block = "\n    ".join(perms) + "\n    "
               if "INTERNET" not in m_code:
@@ -135,10 +136,25 @@ jobs:
                   )
                   m = m.replace("</application>", block + "\n    </application>")
                   open(manifest_path, "w").write(m)
+          import re
           raw_dir = "android/app/src/main/res/raw"
           os.makedirs(raw_dir, exist_ok=True)
-          for f in glob.glob("assets/sounds/*.wav"):
-              shutil.copy(f, raw_dir)
+          AUDIO = {".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac", ".mp4", ".webm", ".opus"}
+          def res_key(stem):
+              k = re.sub(r"[^a-z0-9_]", "_", stem.lower())
+              return ("s_" + k) if (not k or k[0].isdigit()) else k
+          used = set()
+          for f in sorted(glob.glob("assets/sounds/*")):
+              stem, ext = os.path.splitext(os.path.basename(f))
+              if ext.lower() not in AUDIO:
+                  continue
+              key = res_key(stem)
+              if key in used:
+                  print("SKIP duplicate sound name:", f)
+                  continue
+              used.add(key)
+              shutil.copy(f, os.path.join(raw_dir, key + ext.lower()))
+              print("raw sound:", key)
           print("notification setup done")
           PY
 

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 import 'ai_service.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'live_voice_service.dart';
+import 'tts_voice.dart';
 
 class AiSettingsPage extends StatefulWidget {
   final AppDatabase db;
@@ -16,8 +19,14 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   final _keyCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
+  final _liveModelCtrl = TextEditingController();
+  final FlutterTts _tts = FlutterTts();
+
   bool _hasKey = false;
   bool _showKey = false;
+  String _liveVoice = LiveVoiceService.voices.first;
+  String _deviceVoice = 'डिफ़ॉल्ट (फ़ोन की आवाज़)';
+  double _rate = 0.5;
 
   @override
   void initState() {
@@ -29,12 +38,26 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     final key = await AiService.getApiKey();
     final name = await widget.db.getSetting('aiAssistantName');
     final model = await widget.db.getSetting('geminiModel');
+    final liveModel = await widget.db.getSetting('liveModel');
+    final liveVoice = await widget.db.getSetting('liveVoice');
+    final vName = await widget.db.getSetting('ttsVoiceName');
+    final rate = await widget.db.getSetting('ttsRate');
     if (!mounted) return;
     setState(() {
       _hasKey = key != null && key.isNotEmpty;
       _nameCtrl.text = (name == null || name.trim().isEmpty) ? 'Taskify AI' : name.trim();
       _modelCtrl.text = (model == null || model.trim().isEmpty) ? 'gemini-2.5-flash' : model.trim();
+      _liveModelCtrl.text =
+          (liveModel == null || liveModel.trim().isEmpty) ? LiveVoiceService.defaultModel : liveModel.trim();
+      _liveVoice = (liveVoice == null || liveVoice.isEmpty) ? LiveVoiceService.voices.first : liveVoice;
+      _deviceVoice = (vName == null || vName.isEmpty) ? 'डिफ़ॉल्ट (फ़ोन की आवाज़)' : vName;
+      _rate = double.tryParse(rate ?? '') ?? 0.5;
     });
+  }
+
+  void _msg(String s) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
   }
 
   Future<void> _saveKey() async {
@@ -58,15 +81,73 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     _msg('AI असिस्टेंट का नाम सेव हुआ।');
   }
 
-  Future<void> _saveModel() async {
-    final v = _modelCtrl.text.trim();
-    await widget.db.setSetting('geminiModel', v.isEmpty ? 'gemini-2.5-flash' : v);
-    _msg('मॉडल सेव हुआ।');
+  Future<void> _saveModels() async {
+    await widget.db.setSetting('geminiModel', _modelCtrl.text.trim().isEmpty ? 'gemini-2.5-flash' : _modelCtrl.text.trim());
+    await widget.db.setSetting(
+        'liveModel', _liveModelCtrl.text.trim().isEmpty ? LiveVoiceService.defaultModel : _liveModelCtrl.text.trim());
+    _msg('मॉडल सेव हुए।');
   }
 
-  void _msg(String s) {
+  Future<void> _pickLiveVoice() async {
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Live आवाज़ चुनें'),
+        children: [
+          for (final v in LiveVoiceService.voices)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, v),
+              child: Text(v, style: TextStyle(fontWeight: v == _liveVoice ? FontWeight.w900 : FontWeight.normal)),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null) return;
+    await widget.db.setSetting('liveVoice', chosen);
+    setState(() => _liveVoice = chosen);
+    _msg('Live आवाज़: $chosen');
+  }
+
+  Future<void> _pickDeviceVoice() async {
+    final voices = await TtsVoice.available(_tts);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
+    if (voices.isEmpty) {
+      _msg('फ़ोन पर बोलने वाली आवाज़ें नहीं मिलीं। Google Text-to-Speech इंस्टॉल करें।');
+      return;
+    }
+    final chosen = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('बोलने वाली आवाज़ चुनें'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, {'name': '', 'locale': ''}),
+            child: const Text('डिफ़ॉल्ट (फ़ोन की आवाज़)'),
+          ),
+          for (final v in voices)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, v),
+              child: Text('${v['name']}  (${v['locale']})', style: const TextStyle(fontSize: 13)),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null) return;
+    await widget.db.setSetting('ttsVoiceName', chosen['name'] ?? '');
+    await widget.db.setSetting('ttsVoiceLocale', chosen['locale'] ?? '');
+    final shown = (chosen['name'] ?? '').isEmpty ? 'डिफ़ॉल्ट (फ़ोन की आवाज़)' : chosen['name']!;
+    setState(() => _deviceVoice = shown);
+    await _preview();
+  }
+
+  Future<void> _setRate(double v) async {
+    setState(() => _rate = v);
+    await widget.db.setSetting('ttsRate', v.toStringAsFixed(2));
+  }
+
+  Future<void> _preview() async {
+    await TtsVoice.apply(_tts, widget.db);
+    await _tts.speak('नमस्ते, मैं आपका AI सहायक हूँ।');
   }
 
   @override
@@ -74,6 +155,8 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     _keyCtrl.dispose();
     _nameCtrl.dispose();
     _modelCtrl.dispose();
+    _liveModelCtrl.dispose();
+    _tts.stop();
     super.dispose();
   }
 
@@ -127,20 +210,84 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
           ),
           const SizedBox(height: 12),
           _card(
-            title: 'Gemini मॉडल',
-            subtitle: 'डिफ़ॉल्ट gemini-2.5-flash है। Google नया मॉडल आने पर यहाँ बदल सकते हैं।',
-            child: Row(
+            title: 'आवाज़ (लिखे जवाब को बोलने के लिए)',
+            subtitle: 'फ़ोन में जो बोलने वाली आवाज़ें हैं, उनमें से चुनें। आवाज़ सुनकर ही तय करें।',
+            child: Column(
               children: [
-                Expanded(child: TextField(controller: _modelCtrl)),
-                const SizedBox(width: 10),
-                FilledButton(onPressed: _saveModel, child: const Text('Save')),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.record_voice_over_rounded, color: AppColors.cyan),
+                  title: const Text('आवाज़ चुनें'),
+                  subtitle: Text(_deviceVoice, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _pickDeviceVoice,
+                ),
+                Row(
+                  children: [
+                    const Text('गति'),
+                    Expanded(
+                      child: Slider(
+                        value: _rate,
+                        min: 0.3,
+                        max: 0.9,
+                        divisions: 6,
+                        label: _rate.toStringAsFixed(2),
+                        onChanged: (v) => setState(() => _rate = v),
+                        onChangeEnd: _setRate,
+                      ),
+                    ),
+                  ],
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _preview,
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: const Text('आवाज़ सुनें'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _card(
+            title: 'Live बातचीत की आवाज़',
+            subtitle: 'Live मोड में Gemini की अपनी आवाज़ चुनें।',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.graphic_eq_rounded, color: AppColors.emerald),
+              title: const Text('Live आवाज़'),
+              subtitle: Text(_liveVoice),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: _pickLiveVoice,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _card(
+            title: 'Gemini मॉडल',
+            subtitle: 'टेक्स्ट मॉडल और Live (आवाज़) मॉडल। Google नया नाम दे तो यहाँ बदलें।',
+            child: Column(
+              children: [
+                TextField(
+                  controller: _modelCtrl,
+                  decoration: const InputDecoration(labelText: 'टेक्स्ट मॉडल'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _liveModelCtrl,
+                  decoration: const InputDecoration(labelText: 'Live (native audio) मॉडल'),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(onPressed: _saveModels, child: const Text('Save')),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           const Text(
-            'नोट: AI की बातचीत और फ़ोटो Google के Gemini API को भेजी जाती है। '
-            'Key आपकी है, और उसका बिल/सीमा आपके Google खाते से लगती है।',
+            'नोट: बातचीत और फ़ोटो Google के Gemini API को जाती हैं। Key आपकी है, और उसका उपयोग आपके Google खाते से गिना जाता है।',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12, height: 1.4),
           ),
         ],

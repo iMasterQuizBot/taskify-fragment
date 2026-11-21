@@ -1,9 +1,18 @@
-name: Build APK
-on: [push, workflow_dispatch]
+name: Build Taskify APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  APP_ORG: com.taskify        # <-- अपना असली org डालें
+  APP_PKG: com.taskify.routine_app  # <-- अपना असली package name डालें
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -11,276 +20,150 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
-      - name: Setup App Icon Support
-        run: |
-          sudo apt-get update && sudo apt-get install -y inkscape || true
-          if [ -f "app_icon.png" ]; then
-            inkscape -w 1024 -h 1024 app_icon.png -o app_icon.png || true
-          fi
+          cache: true
 
       - name: Scaffold Android & Inject Setup
         run: |
-          flutter create . --platforms=android --org com.taskify --project-name taskify_app
-          sed -i 's/android:label=".*"/android:label="Taskify"/' android/app/src/main/AndroidManifest.xml || true
-          
-          # Gradle Injection Script (FIXED & SAFE)
-          python3 -c '
-          import os
-          for path in ["android/app/build.gradle", "android/app/build.gradle.kts"]:
-              if os.path.exists(path):
-                  with open(path, "r") as f:
-                      content = f.read()
-                  is_kts = path.endswith(".kts")
-                  
-                  # 1. Correct syntax for multiDexEnabled, versionCode, and Java 17
-                  desugar_flag = "isCoreLibraryDesugaringEnabled = true" if is_kts else "coreLibraryDesugaringEnabled = true"
-                  desugar_dep = "coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")" if is_kts else "coreLibraryDesugaring '\''com.android.tools:desugar_jdk_libs:2.1.4'\''"
+          if [ ! -d "android" ]; then
+            flutter create --platforms=android --org "$APP_ORG" --project-name routine_app .
+          fi
 
-                  # Inject compileOptions
-                  content = content.replace("JavaVersion.VERSION_11", "JavaVersion.VERSION_17")
-                  if "compileOptions {" in content:
-                      if "coreLibraryDesugaringEnabled" not in content and "isCoreLibraryDesugaringEnabled" not in content:
-                          content = content.replace("compileOptions {", f"compileOptions {{\n        {desugar_flag}")
-                  
-                  # Inject dependency
-                  if "desugar_jdk_libs" not in content:
-                      if "dependencies {" in content:
-                          content = content.replace("dependencies {", f"dependencies {{\n    {desugar_dep}")
-                      else:
-                          content += f"\ndependencies {{\n    {desugar_dep}\n}}\n"
-
-                  # Inject defaultConfig settings (versionCode, multiDex, minSdk)
-                  if "defaultConfig {" in content:
-                      # Split the content to inject only inside defaultConfig block
-                      parts = content.split("defaultConfig {", 1)
-                      rest = parts[1]
-                      first_block = rest.split("}")[0]
-                      
-                      inject = ""
-                      if is_kts:
-                          if "versionCode" not in first_block:
-                              inject += "\n        versionCode = 1"
-                          if "multiDexEnabled" not in first_block:
-                              inject += "\n        multiDexEnabled = true"
-                      else:
-                          if "versionCode" not in first_block:
-                              inject += "\n        versionCode 1"
-                          if "multiDexEnabled" not in first_block:
-                              inject += "\n        multiDexEnabled true"
-                      if inject:
-                          rest = inject + rest
-                          
-                      # Force minSdk to 21
-                      rest = rest.replace("minSdk = flutter.minSdkVersion", "minSdk = 21")
-                      rest = rest.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 21")
-
-                      content = parts[0] + "defaultConfig {" + rest
-
-                  # Lint: skip the release lint check that crashes the build
-                  lint_block = "\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }" if is_kts else "\n    lint {\n        checkReleaseBuilds false\n        abortOnError false\n    }"
-                  if "lint {" not in content and "android {" in content:
-                      content = content.replace("android {", "android {" + lint_block, 1)
-
-                  with open(path, "w") as f:
-                      f.write(content)
-                  break
-          '
-
-          # Permissions Injection
-          python3 -c '
-          import os
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(manifest_path):
-              with open(manifest_path, "r") as f:
-                  m_code = f.read()
-              perms = [
-                  "<uses-permission android:name=\"android.permission.INTERNET\"/>",
-                  "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
-                  "<uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\"/>",
-                  "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>",
-                  "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
-                  "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
-                  "<uses-permission android:name=\"android.permission.READ_MEDIA_AUDIO\"/>",
-                  "<uses-permission android:name=\"android.permission.VIBRATE\"/>"
-              ]
-              perm_block = "\n    ".join(perms) + "\n    "
-              if "INTERNET" not in m_code:
-                  m_code = m_code.replace("<application", perm_block + "<application")
-              if "requestLegacyExternalStorage" not in m_code:
-                  m_code = m_code.replace("<application", "<application android:requestLegacyExternalStorage=\"true\"")
-              with open(manifest_path, "w") as f:
-                  f.write(m_code)
-          '
+          PKG_PATH=$(echo "$APP_PKG" | tr '.' '/')
+          mkdir -p "android/app/src/main/kotlin/$PKG_PATH"
+          sed "s/__PKG__/$APP_PKG/g" ci/MainActivity.kt.template > "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
 
       - name: Force compileSdk 36 for all plugins
         run: |
-          python3 - <<'PY'
-          import os
-          KTS = """// TASKIFY_COMPILE_SDK
-          subprojects {
-              afterEvaluate {
-                  val androidExt = extensions.findByName("android")
-                  if (androidExt != null) {
-                      var done = false
-                      try {
-                          androidExt.javaClass.getMethod("setCompileSdkVersion", Int::class.javaPrimitiveType).invoke(androidExt, 36)
-                          done = true
-                      } catch (e: Exception) {
-                      }
-                      if (!done) {
-                          try {
-                              androidExt.javaClass.getMethod("setCompileSdk", Int::class.javaObjectType).invoke(androidExt, 36)
-                          } catch (e: Exception) {
-                              println("compileSdk override skipped: " + e.message)
-                          }
-                      }
-                  }
-              }
-          }
-
-          """
-          GROOVY = """// TASKIFY_COMPILE_SDK
-          subprojects {
-              afterEvaluate { p ->
-                  if (p.hasProperty('android')) {
-                      p.android.compileSdkVersion 36
-                  }
-              }
-          }
-
-          """
-          import textwrap
-          KTS = textwrap.dedent(KTS)
-          GROOVY = textwrap.dedent(GROOVY)
-          for path, snippet in (("android/build.gradle.kts", KTS), ("android/build.gradle", GROOVY)):
-              if not os.path.exists(path):
-                  continue
-              c = open(path, encoding="utf-8").read()
-              if "TASKIFY_COMPILE_SDK" in c:
-                  print("already patched:", path)
-                  break
-              i = c.find("subprojects {")
-              c = (c[:i] + snippet + c[i:]) if i != -1 else (c + "\n" + snippet)
-              open(path, "w", encoding="utf-8").write(c)
-              print("compileSdk 36 override added to", path)
-              break
-          else:
-              print("WARNING: no root gradle file found")
-          PY
+          if [ -f "android/build.gradle.kts" ]; then
+            cat ci/root_compile_sdk.kts.txt >> android/build.gradle.kts
+          fi
 
       - name: Notification receivers & custom sound files
         run: |
-          python3 - <<'PY'
-          import os, shutil, glob
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(manifest_path):
-              m = open(manifest_path).read()
-              if "ScheduledNotificationBootReceiver" not in m and "</application>" in m:
-                  block = (
-                      '<receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false"/>'
-                      '<receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="false">'
-                      '<intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/>'
-                      '<action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter></receiver>'
-                  )
-                  m = m.replace("</application>", block + "\n    </application>")
-                  open(manifest_path, "w").write(m)
-          import re
-          raw_dir = "android/app/src/main/res/raw"
-          os.makedirs(raw_dir, exist_ok=True)
-          AUDIO = {".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac", ".mp4", ".webm", ".opus"}
-          def res_key(stem):
-              k = re.sub(r"[^a-z0-9_]", "_", stem.lower())
-              return ("s_" + k) if (not k or k[0].isdigit()) else k
-          used = set()
-          for f in sorted(glob.glob("assets/sounds/*")):
-              stem, ext = os.path.splitext(os.path.basename(f))
-              if ext.lower() not in AUDIO:
-                  continue
-              key = res_key(stem)
-              if key in used:
-                  print("SKIP duplicate sound name:", f)
-                  continue
-              used.add(key)
-              shutil.copy(f, os.path.join(raw_dir, key + ext.lower()))
-              print("raw sound:", key)
-          print("notification setup done")
-          PY
+          mkdir -p android/app/src/main/res/raw
+          if [ -d "assets/sounds" ]; then
+            for f in assets/sounds/*; do
+              [ -f "$f" ] || continue
+              base=$(basename "$f" | tr '[:upper:]' '[:lower:]' | tr '-' '_')
+              cp "$f" "android/app/src/main/res/raw/$base"
+            done
+          fi
 
-      - name: AI, speech, sound-file access & native sound bridge
+          mkdir -p android/app/src/main/res/xml
+          cat << 'EOF' > android/app/src/main/res/xml/taskify_sound_paths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <files-path name="taskify_files" path="." />
+              <cache-path name="taskify_cache" path="." />
+              <external-files-path name="taskify_ext" path="." />
+          </paths>
+          EOF
+
+      - name: Patch & Validate AndroidManifest.xml (Safe XML)
         run: |
-          python3 - <<'PY'
-          import os, glob, re
+          python3 - << 'PYEOF'
+          import xml.etree.ElementTree as ET
 
-          # 1) Manifest: मिक्रोफ़ोन, speech/TTS queries, FileProvider (साउंड फ़ाइल के लिए)
-          mp = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(mp):
-              m = open(mp).read()
-              if "taskifysounds" not in m and "<application" in m:
-                  if "RECORD_AUDIO" not in m:
-                      m = m.replace("<application", '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application', 1)
-                  queries = ('<queries>'
-                             '<intent><action android:name="android.speech.RecognitionService"/></intent>'
-                             '<intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>'
-                             '</queries>\n    ')
-                  m = m.replace("<application", queries + "<application", 1)
-                  provider = ('<provider android:name="androidx.core.content.FileProvider" '
-                              'android:authorities="${applicationId}.taskifysounds" '
-                              'android:exported="false" android:grantUriPermissions="true">'
-                              '<meta-data android:name="android.support.FILE_PROVIDER_PATHS" '
-                              'android:resource="@xml/taskify_file_paths"/></provider>')
-                  m = m.replace("</application>", provider + "\n    </application>")
-                  open(mp, "w").write(m)
-                  print("manifest updated")
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          ANDROID_NS = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", ANDROID_NS)
 
-          # 2) FileProvider paths: ऐप की files/sounds फ़ोल्डर
-          xml_dir = "android/app/src/main/res/xml"
-          os.makedirs(xml_dir, exist_ok=True)
-          with open(xml_dir + "/taskify_file_paths.xml", "w") as f:
-              f.write('<?xml version="1.0" encoding="utf-8"?>\n<paths>\n'
-                      '    <files-path name="taskify_sounds" path="sounds/"/>\n</paths>\n')
+          tree = ET.parse(manifest_path)
+          root = tree.getroot()
+          app = root.find("application")
+          if app is None:
+              raise RuntimeError("<application> tag missing in AndroidManifest.xml")
 
-          # 3) MainActivity: native MethodChannel (ci/MainActivity.kt.template से)
-          kt_files = glob.glob("android/app/src/main/**/MainActivity.kt", recursive=True)
-          if kt_files:
-              path = kt_files[0]
-              pkg = re.search(r"^package\s+([\w.]+)", open(path).read(), re.M).group(1)
-              tpl = open("ci/MainActivity.kt.template").read()
-              open(path, "w").write(tpl.replace("__PKG__", pkg))
-              print("MainActivity updated:", pkg)
-          PY
+          def attr(name):
+              return f"{{{ANDROID_NS}}}{name}"
+
+          # 1. Permissions (AI, speech, notifications, storage)
+          permissions = [
+              "android.permission.INTERNET",
+              "android.permission.RECORD_AUDIO",
+              "android.permission.POST_NOTIFICATIONS",
+              "android.permission.SCHEDULE_EXACT_ALARM",
+              "android.permission.RECEIVE_BOOT_COMPLETED",
+              "android.permission.VIBRATE",
+              "android.permission.WAKE_LOCK",
+          ]
+          existing_perms = {
+              el.get(attr("name")) for el in root.findall("uses-permission")
+          }
+          for p in permissions:
+              if p not in existing_perms:
+                  el = ET.Element("uses-permission")
+                  el.set(attr("name"), p)
+                  root.insert(0, el)
+
+          # 2. FileProvider for taskify/sound (matches MainActivity.kt.template)
+          provider_auth = "${applicationId}.taskifysounds"
+          has_provider = any(
+              p.get(attr("authorities")) == provider_auth
+              for p in app.findall("provider")
+          )
+          if not has_provider:
+              prov = ET.SubElement(app, "provider")
+              prov.set(attr("name"), "androidx.core.content.FileProvider")
+              prov.set(attr("authorities"), provider_auth)
+              prov.set(attr("exported"), "false")
+              prov.set(attr("grantUriPermissions"), "true")
+              meta = ET.SubElement(prov, "meta-data")
+              meta.set(attr("name"), "android.support.FILE_PROVIDER_PATHS")
+              meta.set(attr("resource"), "@xml/taskify_sound_paths")
+
+          # 3. flutter_local_notifications Receivers
+          receivers = [
+              ("com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver", "false", None),
+              ("com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver", "false", [
+                  "android.intent.action.BOOT_COMPLETED",
+                  "android.intent.action.MY_PACKAGE_REPLACED",
+                  "android.intent.action.QUICKBOOT_POWERON",
+                  "com.htc.intent.action.QUICKBOOT_POWERON",
+              ]),
+          ]
+          existing_recv = {r.get(attr("name")) for r in app.findall("receiver")}
+          for r_name, r_exp, actions in receivers:
+              if r_name not in existing_recv:
+                  rec = ET.SubElement(app, "receiver")
+                  rec.set(attr("name"), r_name)
+                  rec.set(attr("exported"), r_exp)
+                  if actions:
+                      inf = ET.SubElement(rec, "intent-filter")
+                      for act in actions:
+                          a = ET.SubElement(inf, "action")
+                          a.set(attr("name"), act)
+
+          ET.indent(tree, space="    ")
+          tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
+
+          # Final XML validation check
+          ET.parse(manifest_path)
+          print("AndroidManifest.xml validated successfully!")
+          PYEOF
 
       - name: Install Dependencies & Clean
         run: |
-          flutter pub get
           flutter clean
           flutter pub get
 
       - name: Setup Icons
         run: |
           if [ -f "app_icon.png" ]; then
-            sed -i 's/image_path: .*/image_path: "app_icon.png"/' pubspec.yaml
-            dart run flutter_launcher_icons || true
+            dart run flutter_launcher_icons
           fi
 
       - name: Restore stable signing key (keeps Google sign-in working)
-        env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
-          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
-            mkdir -p ~/.android
-            echo "$DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
-            echo "Stable signing key restored"
-          else
-            echo "No DEBUG_KEYSTORE_B64 secret set; using a new key this run"
-          fi
+          echo "Yahan apna purana keystore / signing restore step rakhein"
+          # यदि आपके पास KEYSTORE_BASE64 या key.properties वाला पुराना कोड है, तो उसे यहाँ पेस्ट करें
 
       - name: Build Android APK
         run: flutter build apk --split-per-abi
@@ -288,5 +171,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: taskify-release-apk
-          path: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+          name: taskify-apks
+          path: build/app/outputs/flutter-apk/*.apk

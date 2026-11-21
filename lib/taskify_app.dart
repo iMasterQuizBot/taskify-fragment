@@ -5,7 +5,6 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
-import 'google_drive_service.dart';
 import 'main_screen.dart';
 
 class MyDailyRoutineApp extends StatefulWidget {
@@ -24,7 +23,6 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
   bool isLocked = false;
   String savedPin = '';
 
-  final GoogleDriveService _driveService = GoogleDriveService();
 
   @override
   void initState() {
@@ -96,27 +94,31 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
     }
   }
 
+  /// ऑटो-बैकअप: बिना किसी अनुमति और लॉगिन के, ऐप के अपने फ़ोल्डर में JSON सेव करता है।
   Future<void> _performAutoBackup() async {
     try {
       final json = await widget.db.exportJson();
       final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
-      final fileName = 'Taskify_Drive_Backup_$dateStr.json';
+      final base = await getApplicationSupportDirectory();
+      final dir = Directory('${base.path}/backups');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      await File('${dir.path}/Taskify_Auto_$dateStr.json').writeAsString(json);
 
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/$fileName');
-      await tempFile.writeAsString(json);
-
-      // असली Google Drive अपलोड
-      final success = await _driveService.uploadBackup(tempFile, fileName);
-      
-      if (!mounted) return;
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Auto-Backup successful to Google Drive!')),
-        );
+      // पुराने ऑटो-बैकअप: सिर्फ़ आखिरी 5 रखें
+      final files = dir.listSync().whereType<File>().toList()
+        ..sort((a, b) => b.path.compareTo(a.path));
+      for (final old in files.skip(5)) {
+        try {
+          await old.delete();
+        } catch (_) {}
       }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✅ Auto-Backup ऐप फ़ोल्डर में सेव हुआ (Settings → बैकअप से शेयर करें)।')),
+      );
     } catch (e) {
-      // इग्नोर एरर
+      // ऑटो-बैकअप की गलती चुपचाप छोड़ें
     }
   }
 

@@ -6,6 +6,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import 'ai_service.dart';
 import 'app_theme.dart';
+import 'tts_voice.dart';
 
 enum _VoiceState { listening, thinking, speaking, idle }
 
@@ -66,8 +67,7 @@ class _VoiceOrbScreenState extends State<VoiceOrbScreen> with SingleTickerProvid
       if (mounted) Navigator.pop(context);
       return;
     }
-    await _tts.setLanguage('hi-IN');
-    await _tts.setSpeechRate(0.5);
+    await TtsVoice.apply(_tts, widget.ai.db);
     await _tts.awaitSpeakCompletion(true);
     _active = true;
     _listenAgain();
@@ -109,13 +109,13 @@ class _VoiceOrbScreenState extends State<VoiceOrbScreen> with SingleTickerProvid
       widget.onChanged();
       if (!_active) return;
       _setState(_VoiceState.speaking);
-      await _tts.speak(reply);
+      await _tts.speak(TtsVoice.cleanForSpeech(reply));
     } catch (e) {
       if (!_active) return;
       _setState(_VoiceState.speaking);
-      await _tts.speak(e.toString().replaceFirst('Exception: ', ''));
+      await _tts.speak(TtsVoice.cleanForSpeech(e.toString().replaceFirst('Exception: ', '')));
     }
-    if (_active) _listenAgain();
+    if (_active && _state == _VoiceState.speaking) _listenAgain();
   }
 
   Color get _color {
@@ -129,6 +129,13 @@ class _VoiceOrbScreenState extends State<VoiceOrbScreen> with SingleTickerProvid
       case _VoiceState.idle:
         return AppColors.textMuted;
     }
+  }
+
+  /// AI बोल रहा हो तो गोले पर टैप करके उसे रोकें और सुनने लगें
+  Future<void> _tapOrb() async {
+    if (_state != _VoiceState.speaking) return;
+    await _tts.stop();
+    if (_active) _listenAgain();
   }
 
   void _stop() {
@@ -145,6 +152,12 @@ class _VoiceOrbScreenState extends State<VoiceOrbScreen> with SingleTickerProvid
       body: SafeArea(
         child: Stack(
           children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _tapOrb,
+              ),
+            ),
             Center(
               child: AnimatedBuilder(
                 animation: _pulse,

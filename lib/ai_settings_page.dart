@@ -28,6 +28,11 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   String _deviceVoice = 'डिफ़ॉल्ट (फ़ोन की आवाज़)';
   double _rate = 0.5;
 
+  final _dsKeyCtrl = TextEditingController();
+  String _provider = 'gemini';
+  bool _hasDsKey = false;
+  bool _showDsKey = false;
+
   @override
   void initState() {
     super.initState();
@@ -36,6 +41,8 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
 
   Future<void> _load() async {
     final key = await AiService.getApiKey();
+    final dsKey = await AiService.getDeepseekKey();
+    final provider = await widget.db.getSetting('aiProvider');
     final name = await widget.db.getSetting('aiAssistantName');
     final model = await widget.db.getSetting('geminiModel');
     final liveModel = await widget.db.getSetting('liveModel');
@@ -45,6 +52,8 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     if (!mounted) return;
     setState(() {
       _hasKey = key != null && key.isNotEmpty;
+      _hasDsKey = dsKey != null && dsKey.isNotEmpty;
+      _provider = (provider == null || provider.trim().isEmpty) ? 'gemini' : provider.trim();
       _nameCtrl.text = (name == null || name.trim().isEmpty) ? 'Taskify AI' : name.trim();
       _modelCtrl.text = (model == null || model.trim().isEmpty) ? 'gemini-2.5-flash' : model.trim();
       _liveModelCtrl.text =
@@ -73,6 +82,27 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     await AiService.clearApiKey();
     await _load();
     _msg('API key हटा दी गई।');
+  }
+
+  Future<void> _selectProvider(String p) async {
+    await widget.db.setSetting('aiProvider', p);
+    setState(() => _provider = p);
+    _msg(p == 'deepseek' ? 'अब सवाल DeepSeek से हल होंगे।' : 'अब सवाल Gemini से हल होंगे।');
+  }
+
+  Future<void> _saveDsKey() async {
+    final v = _dsKeyCtrl.text.trim();
+    if (v.isEmpty) return;
+    await AiService.saveDeepseekKey(v);
+    _dsKeyCtrl.clear();
+    await _load();
+    _msg('DeepSeek API key सेव हो गई।');
+  }
+
+  Future<void> _removeDsKey() async {
+    await AiService.clearDeepseekKey();
+    await _load();
+    _msg('DeepSeek API key हटा दी गई।');
   }
 
   Future<void> _saveName() async {
@@ -153,6 +183,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   @override
   void dispose() {
     _keyCtrl.dispose();
+    _dsKeyCtrl.dispose();
     _nameCtrl.dispose();
     _modelCtrl.dispose();
     _liveModelCtrl.dispose();
@@ -167,6 +198,60 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _card(
+            title: 'सवाल किससे हल करें?',
+            subtitle: 'टाइप करके पूछे गए सवाल (चैट/फ़ोटो) इसी इंजन से हल होंगे। Live बातचीत (बोलकर) अभी भी Gemini से ही होती है — नीचे नोट देखें।',
+            child: Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('Gemini'),
+                    selected: _provider == 'gemini',
+                    onSelected: (_) => _selectProvider('gemini'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text('DeepSeek'),
+                    selected: _provider == 'deepseek',
+                    onSelected: (_) => _selectProvider('deepseek'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _card(
+            title: 'DeepSeek API Key',
+            subtitle: _hasDsKey
+                ? 'Key सेव है (सुरक्षित स्टोरेज में)।'
+                : 'platform.deepseek.com पर अकाउंट बनाकर, बैलेंस डालकर key बनाएँ, फिर यहाँ डालें। (नोट: DeepSeek मुफ़्त नहीं, पर बहुत सस्ता है; और फ़ोटो वाले सवाल अभी नहीं पढ़ सकता — उसके लिए Gemini चुनें।)',
+            child: Column(
+              children: [
+                TextField(
+                  controller: _dsKeyCtrl,
+                  obscureText: !_showDsKey,
+                  decoration: InputDecoration(
+                    hintText: _hasDsKey ? 'नई key डालें (पुरानी बदलने के लिए)' : 'sk-… जैसी key',
+                    suffixIcon: IconButton(
+                      icon: Icon(_showDsKey ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                      onPressed: () => setState(() => _showDsKey = !_showDsKey),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    FilledButton(onPressed: _saveDsKey, child: const Text('Save Key')),
+                    const SizedBox(width: 10),
+                    if (_hasDsKey) TextButton(onPressed: _removeDsKey, child: const Text('Remove')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
           _card(
             title: 'Gemini API Key',
             subtitle: _hasKey

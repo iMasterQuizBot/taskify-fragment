@@ -1,9 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/data/latest.dart' as tz;
 
 import 'app_database.dart';
+import 'notification_service.dart';
 import 'taskify_app.dart';
 
 void main() async {
@@ -11,17 +10,16 @@ void main() async {
   GestureBinding.instance.resamplingEnabled = true;
 
   try {
-    tz.initializeTimeZones();
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const InitializationSettings initializationSettings =
-        InitializationSettings(android: initializationSettingsAndroid);
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+    await NotificationService.init();
+    await NotificationService.requestNotificationPermission();
   } catch (_) {}
 
   final db = AppDatabase();
   await db.init();
   await db.autoAllocateRollingHabits();
+  try {
+    await db.rescheduleAllReminders();
+  } catch (_) {}
 
   // FadeInApp के साथ ऐप शुरू करें
   runApp(FadeInApp(child: MyDailyRoutineApp(db: db)));

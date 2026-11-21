@@ -12,6 +12,8 @@ import 'google_drive_service.dart';
 import 'helpers.dart';
 import 'notification_service.dart';
 import 'native_storage_explorer_dialog.dart';
+import 'ai_settings_page.dart';
+import 'sound_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final AppDatabase db;
@@ -50,7 +52,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String autoBackupFolder = '';
   String autoBackupDay = 'Sunday';
   bool cloudSyncEnabled = false;
-  String notificationSoundKey = 'default';
   bool pinEnabled = false;
 
   @override
@@ -75,7 +76,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final autoBD = await widget.db.getSetting('autoBackupDay');
     final cloudS = await widget.db.getSetting('cloudSyncEnabled');
     final pinEn = await widget.db.getSetting('pinSecurityEnabled');
-    final notifSound = await widget.db.getSetting('notificationSound');
 
     if (!mounted) return;
 
@@ -93,7 +93,6 @@ class _SettingsPageState extends State<SettingsPage> {
       autoBackupFolder = autoBF ?? '';
       autoBackupDay = autoBD ?? 'Sunday';
       cloudSyncEnabled = cloudS == '1';
-      notificationSoundKey = notifSound ?? 'default';
       pinEnabled = pinEn == '1';
     });
   }
@@ -236,7 +235,7 @@ class _SettingsPageState extends State<SettingsPage> {
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('❌ Backup failed or cancelled.')),
+          SnackBar(content: Text('❌ ${_driveService.lastError ?? 'Backup failed or cancelled.'}')),
         );
       }
     } catch (e) {
@@ -644,61 +643,10 @@ class _SettingsPageState extends State<SettingsPage> {
     widget.onChanged();
   }
 
-  Future<void> pickNotificationSound() async {
-    final player = AudioPlayer();
-    String selected = notificationSoundKey;
-    final chosen = await showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setD) => AlertDialog(
-          title: const Text('Notification Sound'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final s in notificationSounds)
-                  RadioListTile<String>(
-                    value: s.key,
-                    groupValue: selected,
-                    title: Text(s.label),
-                    onChanged: (v) async {
-                      if (v == null) return;
-                      setD(() => selected = v);
-                      final asset = notificationSoundFor(v).assetPath;
-                      if (asset != null) {
-                        await player.stop();
-                        await player.play(AssetSource(asset));
-                      }
-                    },
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, selected), child: const Text('Save')),
-          ],
-        ),
-      ),
-    );
-    await player.stop();
-    await player.dispose();
-    if (chosen == null) return;
-
-    await widget.db.setSetting('notificationSound', chosen);
-    // पहले से शेड्यूल नोटिफिकेशन भी नए साउंड से चलें
-    await widget.db.rescheduleAllReminders();
-    if (!mounted) return;
-    setState(() => notificationSoundKey = chosen);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Sound set: ${notificationSoundFor(chosen).label}')),
-    );
-  }
-
   Future<void> testNotification() async {
     try {
       await NotificationService.requestNotificationPermission();
-      await NotificationService.showTest(notificationSoundKey);
+      await NotificationService.showTest();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Test notification भेजा गया')),
@@ -885,13 +833,6 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: pickAutoBackupFolder,
           ),
           _settingsTile(
-            icon: Icons.notifications_active_rounded,
-            color: AppColors.amber,
-            title: 'Notification Sound',
-            subtitle: 'Current: ${notificationSoundFor(notificationSoundKey).label} (tap to change & preview)',
-            onTap: pickNotificationSound,
-          ),
-          _settingsTile(
             icon: Icons.notification_add_rounded,
             color: AppColors.amber,
             title: 'Test Notification',
@@ -904,6 +845,20 @@ class _SettingsPageState extends State<SettingsPage> {
             title: 'Notification Permissions',
             subtitle: 'Notification और Alarm की अनुमति जाँचें / दें',
             onTap: checkNotificationPermissions,
+          ),
+          _settingsTile(
+            icon: Icons.music_note_rounded,
+            color: AppColors.amber,
+            title: 'Sound & Notifications',
+            subtitle: 'टास्क बनाने/पूरा होने, नोटिफिकेशन और अलार्म के लिए अपनी फ़ाइल चुनें।',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SoundSettingsPage(db: widget.db))),
+          ),
+          _settingsTile(
+            icon: Icons.auto_awesome_rounded,
+            color: AppColors.cyan,
+            title: 'AI Assistant',
+            subtitle: 'Gemini API key, असिस्टेंट का नाम और मॉडल।',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AiSettingsPage(db: widget.db))),
           ),
           _settingsTile(
             icon: Icons.cloud_sync_rounded,

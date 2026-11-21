@@ -211,6 +211,27 @@ jobs:
             echo "No DEBUG_KEYSTORE_B64 secret set; using a new key this run"
           fi
 
+      - name: Force compileSdk 36 for all Android modules (fixes checkAarMetadata)
+        run: |
+          python3 - <<'PY'
+          import os, re
+
+          block = open("ci/root_compile_sdk.kts.txt").read() + "\n"
+          root = "android/build.gradle.kts"
+          if os.path.exists(root):
+              src = open(root).read()
+              if "TASKIFY_COMPILE_SDK" not in src:
+                  open(root, "w").write(block + src)
+                  print("root build.gradle.kts patched")
+
+          app = "android/app/build.gradle.kts"
+          if os.path.exists(app):
+              src = open(app).read()
+              src = re.sub(r"compileSdk\s*=\s*flutter\.compileSdkVersion", "compileSdk = 36", src)
+              open(app, "w").write(src)
+              print("app compileSdk set to 36")
+          PY
+
       - name: Build Android APK
         run: flutter build apk --split-per-abi
 

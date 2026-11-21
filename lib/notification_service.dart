@@ -21,7 +21,10 @@ class NotificationService {
   static Future<void> init() async {
     if (_ready) return;
     tzdata.initializeTimeZones();
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // pubspec.yaml में flutter_launcher_icons "launcher_icon" नाम से आइकन बनाता है,
+    // इसलिए @mipmap/ic_launcher नहीं बल्कि @mipmap/launcher_icon यूज़ करना है,
+    // वरना "resource @mipmap/ic_launcher could not be found" एरर आता है।
+    const android = AndroidInitializationSettings('@mipmap/launcher_icon');
     await _plugin.initialize(const InitializationSettings(android: android));
     _ready = true;
   }

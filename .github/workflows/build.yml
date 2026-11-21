@@ -30,6 +30,18 @@ jobs:
         run: |
           flutter create . --platforms=android --org com.taskify --project-name taskify_app
           sed -i 's/android:label=".*"/android:label="Taskify"/' android/app/src/main/AndroidManifest.xml || true
+
+          # फ़ोन पर accidental split-screen / freeform multi-window में ऐप resize होकर
+          # आधी/एक-तिहाई स्क्रीन पर "अटक" जाने का glitch रोकने के लिए Activity को
+          # resizeableActivity=false कर दो (सिर्फ़ फ़ोन के लिए; टैबलेट/फोल्डेबल पर कोई फ़र्क़ नहीं)।
+          python3 -c '
+          import re
+          p = "android/app/src/main/AndroidManifest.xml"
+          m = open(p).read()
+          if "resizeableActivity" not in m:
+              m = re.sub(r"(<activity\s+android:name=\"\.MainActivity\")", r"\1\n            android:resizeableActivity=\"false\"", m, count=1)
+              open(p, "w").write(m)
+          '
           
           # Gradle Injection Script (FIXED & SAFE)
           python3 -c '

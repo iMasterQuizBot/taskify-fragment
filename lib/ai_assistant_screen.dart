@@ -9,6 +9,9 @@ import 'ai_service.dart';
 import 'ai_settings_page.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'live_voice_screen.dart';
+import 'speech_text.dart';
+import 'tts_voice.dart';
 import 'voice_orb_screen.dart';
 
 class _Msg {
@@ -38,6 +41,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   bool _busy = false;
   bool _listening = false;
   bool _speakReplies = true;
+  bool _speaking = false;
   Uint8List? _pendingImage;
   String _assistantName = 'Taskify AI';
 
@@ -45,7 +49,23 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   void initState() {
     super.initState();
     _loadName();
-    _tts.setSpeechRate(0.5);
+    _setupTts();
+  }
+
+  Future<void> _setupTts() async {
+    _tts.setStartHandler(() {
+      if (mounted) setState(() => _speaking = true);
+    });
+    _tts.setCompletionHandler(() {
+      if (mounted) setState(() => _speaking = false);
+    });
+    _tts.setCancelHandler(() {
+      if (mounted) setState(() => _speaking = false);
+    });
+    _tts.setErrorHandler((_) {
+      if (mounted) setState(() => _speaking = false);
+    });
+    await TtsVoice.apply(_tts, widget.db);
   }
 
   Future<void> _loadName() async {
@@ -66,17 +86,25 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   void _scrollDown() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.animateTo(_scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
       }
     });
+  }
+
+  Future<void> _stopSpeaking() async {
+    await _tts.stop();
+    if (mounted) setState(() => _speaking = false);
   }
 
   Future<void> _pickImage() async {
     final file = await ImagePicker().pickImage(
       source: ImageSource.gallery,
-      maxWidth: 1400,
-      imageQuality: 85,
+      maxWidth: 1024,
+      imageQuality: 80,
     );
     if (file == null) return;
     final bytes = await file.readAsBytes();
@@ -118,6 +146,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     final text = _input.text.trim();
     if (_busy || (text.isEmpty && _pendingImage == null)) return;
 
+    await _stopSpeaking();
     final image = _pendingImage;
     setState(() {
       _messages.add(_Msg(text.isEmpty ? 'सवाल (फ़ोटो)' : text, true, image: image));
@@ -128,17 +157,12 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     _scrollDown();
 
     try {
-      final reply = await _ai.send(
-        text: text,
-        image: image,
-        imageMime: 'image/jpeg',
-      );
+      final reply = await _ai.send(text: text, image: image, imageMime: 'image/jpeg');
       widget.onChanged();
       if (!mounted) return;
       setState(() => _messages.add(_Msg(reply, false)));
       if (_speakReplies) {
-        await _tts.setLanguage('hi-IN');
-        await _tts.speak(reply);
+        await _tts.speak(TtsVoice.cleanForSpeech(reply));
       }
     } catch (e) {
       if (!mounted) return;
@@ -149,13 +173,17 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     }
   }
 
-  void _openVoiceMode() {
+  void _openVoiceOrb() {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => VoiceOrbScreen(ai: _ai, assistantName: _assistantName, onChanged: widget.onChanged),
       ),
     );
+  }
+
+  void _openLive() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => LiveVoiceScreen(db: widget.db)));
   }
 
   @override
@@ -165,21 +193,34 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         title: Text(_assistantName, style: const TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(
-            tooltip: 'Voice mode',
-            icon: const Icon(Icons.graphic_eq_rounded, color: AppColors.cyan),
-            onPressed: _openVoiceMode,
+            tooltip: 'Live बातचीत (आवाज़ में)',
+            icon: const Icon(Icons.record_voice_over_rounded, color: AppColors.emerald),
+            onPressed: _openLive,
           ),
           IconButton(
-            tooltip: 'जवाब बोलकर सुनाएँ',
-            icon: Icon(_speakReplies ? Icons.volume_up_rounded : Icons.volume_off_rounded),
-            onPressed: () => setState(() => _speakReplies = !_speakReplies),
+            tooltip: 'Voice mode (टेक्स्ट नहीं)',
+            icon: const Icon(Icons.graphic_eq_rounded, color: AppColors.cyan),
+            onPressed: _openVoiceOrb,
           ),
+          if (_speaking)
+            IconButton(
+              tooltip: 'बोलना रोकें',
+              icon: const Icon(Icons.stop_circle_rounded, color: AppColors.rose),
+              onPressed: _stopSpeaking,
+            )
+          else
+            IconButton(
+              tooltip: 'जवाब बोलकर सुनाएँ',
+              icon: Icon(_speakReplies ? Icons.volume_up_rounded : Icons.volume_off_rounded),
+              onPressed: () => setState(() => _speakReplies = !_speakReplies),
+            ),
           IconButton(
             tooltip: 'AI Settings',
             icon: const Icon(Icons.settings_rounded),
             onPressed: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => AiSettingsPage(db: widget.db)));
-              _loadName();
+              await _loadName();
+              await TtsVoice.apply(_tts, widget.db);
             },
           ),
         ],
@@ -195,7 +236,8 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
                         child: Text(
                           'मुझसे लिखकर या बोलकर बात करें।\n'
                           '"कल शाम 6 बजे जिम जोड़ो", "आज के टास्क दिखाओ",\n'
-                          'या सवाल की फ़ोटो भेजें।',
+                          'या सवाल की फ़ोटो भेजें।\n\n'
+                          'आवाज़ में बात करने के लिए ऊपर 🎙️ बटन दबाएँ।',
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: AppColors.textSecondary, height: 1.5),
                         ),
@@ -253,8 +295,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
                   ),
                   IconButton(
                     tooltip: 'बोलें',
-                    icon: Icon(_listening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                        color: _listening ? AppColors.rose : null),
+                    icon: Icon(
+                      _listening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                      color: _listening ? AppColors.rose : null,
+                    ),
                     onPressed: _busy ? null : _toggleListen,
                   ),
                   IconButton(
@@ -275,7 +319,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     return Align(
       alignment: m.isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.84),
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -294,7 +338,9 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
                   child: Image.memory(m.image!, fit: BoxFit.cover),
                 ),
               ),
-            SelectableText(m.text, style: const TextStyle(height: 1.4)),
+            m.isUser
+                ? SelectableText(m.text, style: const TextStyle(height: 1.4))
+                : SolutionText(m.text, style: const TextStyle(height: 1.5, fontSize: 15)),
           ],
         ),
       ),

@@ -1,9 +1,11 @@
 package __PKG__
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.speech.tts.TextToSpeech
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -68,6 +70,31 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     else -> result.notImplemented()
+                }
+            }
+
+        // 3) आवाज़ों का डेटा डाउनलोड/मैनेज करने के लिए Android के असली TTS
+        // इंजन (Google Text-to-Speech) की सेटिंग/डेटा-इंस्टॉलर खोलना।
+        // नोट: Android किसी भी ऐप को किसी "एक ख़ास" आवाज़ को सीधे डाउनलोड करने
+        // का तरीका नहीं देता — सिर्फ़ Google TTS का अपना डेटा-मैनेजर खोला जा
+        // सकता है, जहाँ से यूज़र भाषा चुनकर उसका डेटा डाउनलोड करता है। इसलिए
+        // यह बटन "वो आधिकारिक स्क्रीन" खोलता है, न कि किसी एक voice को छुपाकर
+        // अपने-आप डाउनलोड करता है (जो Android में किसी भी ऐप के लिए संभव नहीं)।
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taskify/tts")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "openVoiceData") {
+                    try {
+                        val intent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: ActivityNotFoundException) {
+                        result.success(false)
+                    } catch (e: Exception) {
+                        result.error("TTS_DATA", e.message, null)
+                    }
+                } else {
+                    result.notImplemented()
                 }
             }
     }

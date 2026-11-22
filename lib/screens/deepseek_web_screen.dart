@@ -1,8 +1,11 @@
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../ai_assistant_screen.dart';
 import '../app_database.dart';
@@ -38,6 +41,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
 
   final List<_ChatMsg> _messages = [];
   bool _isListening = false;
+  bool _isListeningLive = false;
   bool _voiceReply = true;
   int _webProgress = 0;
 
@@ -66,6 +70,25 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
         ),
       )
       ..loadRequest(Uri.parse('https://chat.deepseek.com'));
+
+    if (Platform.isAndroid && _webController.platform is AndroidWebViewController) {
+      final androidCtrl = _webController.platform as AndroidWebViewController;
+      androidCtrl.setOnShowFileSelector((FileSelectorParams params) async {
+        try {
+          final res = await FilePicker.platform.pickFiles(
+            allowMultiple: params.mode == FileSelectorMode.openMultiple,
+            withData: false,
+          );
+          if (res == null) return <String>[];
+          return res.files
+              .where((f) => f.path != null)
+              .map((f) => Uri.file(f.path!).toString())
+              .toList();
+        } catch (_) {
+          return <String>[];
+        }
+      });
+    }
   }
 
   Future<void> _loadOfflineHistory() async {
@@ -168,10 +191,13 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     }
   }
 
-  Future<void> _toggleMic() async {
+  Future<void> _toggleMic({required bool autoSend}) async {
     if (_isListening) {
       await _speech.stop();
-      setState(() => _isListening = false);
+      setState(() {
+        _isListening = false;
+        _isListeningLive = false;
+      });
       return;
     }
 
@@ -184,15 +210,24 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       return;
     }
 
-    setState(() => _isListening = true);
+    setState(() {
+      _isListening = true;
+      _isListeningLive = autoSend;
+    });
     await _speech.listen(
       localeId: 'hi_IN',
       onResult: (result) {
         if (!mounted) return;
         setState(() => _inputCtrl.text = result.recognizedWords);
         if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
-          setState(() => _isListening = false);
-          _sendOffline(result.recognizedWords);
+          final shouldSend = _isListeningLive;
+          setState(() {
+            _isListening = false;
+            _isListeningLive = false;
+          });
+          if (shouldSend) {
+            _sendOffline(result.recognizedWords);
+          }
         }
       },
     );
@@ -372,12 +407,54 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
             color: const Color(0xFF151A24),
             child: Row(
               children: [
-                IconButton(
-                  icon: Icon(
-                    _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                    color: _isListening ? Colors.redAccent : AppColors.cyan,
+                Tooltip(
+                  message: 'Live बोलें (अपने आप Send होगा)',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(999),
+                    onTap: () => _toggleMic(autoSend: true),
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: (_isListening && _isListeningLive)
+                            ? Colors.redAccent.withOpacity(0.22)
+                            : AppColors.cyan.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: (_isListening && _isListeningLive)
+                              ? Colors.redAccent
+                              : AppColors.cyan.withOpacity(0.45),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.mic_rounded,
+                            size: 16,
+                            color: (_isListening && _isListeningLive) ? Colors.redAccent : AppColors.cyan,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            'Live',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: (_isListening && _isListeningLive) ? Colors.redAccent : AppColors.cyan,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  onPressed: _toggleMic,
+                ),
+                IconButton(
+                  tooltip: 'बोलकर लिखें (Manual Send)',
+                  icon: Icon(
+                    (_isListening && !_isListeningLive) ? Icons.mic_rounded : Icons.mic_none_rounded,
+                    color: (_isListening && !_isListeningLive) ? Colors.redAccent : AppColors.cyan,
+                  ),
+                  onPressed: () => _toggleMic(autoSend: false),
                 ),
                 Expanded(
                   child: TextField(

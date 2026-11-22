@@ -38,6 +38,7 @@ jobs:
           PKG_PATH=$(echo "$APP_PKG" | tr '.' '/')
           mkdir -p "android/app/src/main/kotlin/$PKG_PATH"
           sed "s/__PKG__/$APP_PKG/g" ci/MainActivity.kt.template > "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
+          sed "s/__PKG__/$APP_PKG/g" ci/TaskifyWidgetProvider.kt.template > "android/app/src/main/kotlin/$PKG_PATH/TaskifyWidgetProvider.kt"
 
       - name: Force compileSdk 36 for all plugins
         run: |
@@ -120,6 +121,7 @@ jobs:
               "android.permission.FOREGROUND_SERVICE",
               "android.permission.FOREGROUND_SERVICE_MICROPHONE",
               "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+              "android.permission.USE_BIOMETRIC",
           ]
           existing_perms = {
               el.get(attr("name")) for el in root.findall("uses-permission")
@@ -205,7 +207,10 @@ jobs:
             done
           fi
 
-          mkdir -p android/app/src/main/res/xml
+          mkdir -p android/app/src/main/res/layout android/app/src/main/res/drawable android/app/src/main/res/xml
+          cp ci/taskify_glass_widget.xml android/app/src/main/res/layout/taskify_glass_widget.xml
+          cp ci/taskify_glass_bg.xml android/app/src/main/res/drawable/taskify_glass_bg.xml
+          cp ci/taskify_widget_info.xml android/app/src/main/res/xml/taskify_widget_info.xml
           cat << 'EOF' > android/app/src/main/res/xml/taskify_sound_paths.xml
           <?xml version="1.0" encoding="utf-8"?>
           <paths xmlns:android="http://schemas.android.com/apk/res/android">

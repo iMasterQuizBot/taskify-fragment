@@ -16,11 +16,11 @@ class SoundSlot {
 }
 
 const List<SoundSlot> soundSlots = [
-  SoundSlot('taskCreated', 'टास्क बनाने पर', 'builtin:sound_beep'),
-  SoundSlot('taskCompleted', 'टास्क पूरा होने पर', 'builtin:sound_chime'),
-  SoundSlot('allCompleted', 'सभी टास्क पूरे होने पर', 'builtin:sound_bell'),
-  SoundSlot('reminder', 'नोटिफिकेशन (पहले से सूचना)', 'builtin:sound_chime'),
-  SoundSlot('alarm', 'अलार्म (टास्क के समय पर)', 'builtin:sound_alarm'),
+  SoundSlot('taskCreated', 'टास्क बनाने पर', 'builtin:mixkit_select_click_1109'),
+  SoundSlot('taskCompleted', 'टास्क पूरा होने पर', 'builtin:mixkit_cool_interface_click_tone_2568'),
+  SoundSlot('allCompleted', 'सभी टास्क पूरे होने पर', 'builtin:mixkit_modern_technology_select_3124'),
+  SoundSlot('reminder', 'नोटिफिकेशन (पहले से सूचना)', 'builtin:mixkit_gear_fast_lock_tap_2857'),
+  SoundSlot('alarm', 'अलार्म (टास्क के समय पर)', 'builtin:mixkit_old_camera_shutter_click_1137'),
 ];
 
 class SoundService {
@@ -110,10 +110,11 @@ class SoundService {
     if (_assetByKey.isEmpty) {
       // सुरक्षा: अगर लिस्ट न मिले तो कम से कम ये 4 चलें
       const defaults = {
-        'sound_chime': 'Chime',
-        'sound_bell': 'Bell',
-        'sound_beep': 'Beep',
-        'sound_alarm': 'Alarm',
+        'mixkit_select_click_1109': 'Mixkit Select Click 1109',
+        'mixkit_cool_interface_click_tone_2568': 'Mixkit Cool Interface Click Tone 2568',
+        'mixkit_modern_technology_select_3124': 'Mixkit Modern Technology Select 3124',
+        'mixkit_gear_fast_lock_tap_2857': 'Mixkit Gear Fast Lock Tap 2857',
+        'mixkit_old_camera_shutter_click_1137': 'Mixkit Old Camera Shutter Click 1137',
       };
       defaults.forEach((k, v) {
         _assetByKey[k] = 'sounds/$k.wav';

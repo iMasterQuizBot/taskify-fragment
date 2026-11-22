@@ -213,16 +213,23 @@ jobs:
       - name: Verify raw sound resources exist (fail fast instead of silent runtime crash)
         run: |
           python3 - << 'PYEOF'
-          import os, sys
+          import os, re, sys
           RAW = "android/app/src/main/res/raw"
-          required = ["sound_chime", "sound_bell", "sound_beep", "sound_alarm"]
+          ASSETS = "assets/sounds"
+          expected = set()
+          if os.path.isdir(ASSETS):
+              for f in os.listdir(ASSETS):
+                  stem = os.path.splitext(f)[0].lower()
+                  key = re.sub(r"[^a-z0-9_]", "_", stem)
+                  if key:
+                      expected.add(key)
           present = {os.path.splitext(f)[0] for f in os.listdir(RAW)} if os.path.isdir(RAW) else set()
-          missing = [r for r in required if r not in present]
-          if missing:
+          missing = sorted(expected - present)
+          if not present or missing:
               print(f"ERROR: ये raw sound resources नहीं मिले: {missing}")
               print(f"मौजूद फ़ाइलें: {sorted(present)}")
               sys.exit(1)
-          print(f"OK: सभी ज़रूरी raw sounds मौजूद हैं -> {sorted(present)}")
+          print(f"OK: सभी raw sounds मौजूद हैं -> {sorted(present)}")
           PYEOF
 
       - name: Setup Icons

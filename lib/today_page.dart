@@ -10,6 +10,7 @@ import 'focus_timer_dialog.dart';
 import 'helpers.dart';
 import 'task_dialog.dart';
 import 'ai_assistant_screen.dart';
+import 'widgets/ai_orb_icon.dart';
 
 class TodayPage extends StatefulWidget {
   final AppDatabase db;
@@ -273,22 +274,22 @@ class TodayPageState extends State<TodayPage> {
                 ),
               ]
             : [
+                // FIX: पहले यहाँ ठोस sparkle आइकन था और नीचे dock में अलग "AI" tab भी
+                // था — दो अलग जगह एक ही AI के लिए। अब दोनों जगह एक जैसा जीवंत
+                // "live AI bubble" (Perplexity-स्टाइल स्फेरिकल एनिमेशन) दिखेगा, और
+                // यही आइकन Taskify की पूरी एआई चैट (फ़ोटो सवाल, आवाज़, AI Settings
+                // तक जाने वाला gear — सब कुछ) खोलता है, कोई feature नहीं हटा।
                 Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withOpacity(0.08)),
-                  ),
+                  margin: const EdgeInsets.only(right: 4),
                   child: IconButton(
-                    tooltip: 'AI Assistant',
+                    tooltip: 'Taskify AI (लाइव बबल)',
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => AiAssistantScreen(db: widget.db, onChanged: widget.onChanged),
                       ),
                     ),
-                    icon: const Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.cyan),
+                    icon: const AiOrbIcon(size: 19),
                   ),
                 ),
                 Container(
@@ -305,7 +306,9 @@ class TodayPageState extends State<TodayPage> {
                   ),
                 ),
                 Container(
-                  margin: const EdgeInsets.only(right: 16),
+                  // राइट में margin बढ़ाया — ऊपर टॉप-राइट पर अब हमेशा दिखने वाला
+                  // global Settings gear (main_screen.dart) रहता है, उससे टकराना नहीं चाहिए।
+                  margin: const EdgeInsets.only(right: 58),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.06),
                     shape: BoxShape.circle,

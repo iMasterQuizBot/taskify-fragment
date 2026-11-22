@@ -277,19 +277,6 @@ class TodayPageState extends State<TodayPage> {
               ]
             : [
                 Container(
-                  margin: const EdgeInsets.only(right: 4),
-                  child: IconButton(
-                    tooltip: 'Live Voice AI (Offline & API)',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => LiveVoiceScreen(db: widget.db, onChanged: widget.onChanged),
-                      ),
-                    ),
-                    icon: const AiOrbIcon(size: 19, state: AiOrbState.idle),
-                  ),
-                ),
-                Container(
                   margin: const EdgeInsets.only(right: 8),
                   decoration: BoxDecoration(
                     gradient: AppColors.heroGradient,
@@ -495,6 +482,30 @@ class TodayPageState extends State<TodayPage> {
                         ),
                         child: const Center(
                           child: Icon(Icons.today_rounded, size: 20, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 1,
+                    child: InkWell(
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LiveVoiceScreen(db: widget.db, onChanged: widget.onChanged),
+                        ),
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.cyan.withOpacity(0.45)),
+                        ),
+                        child: const Center(
+                          child: AiOrbIcon(size: 18, state: AiOrbState.idle),
                         ),
                       ),
                     ),

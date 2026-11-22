@@ -228,41 +228,26 @@ class GlassCard extends StatelessWidget {
 
     Widget content = ClipRRect(
       borderRadius: radius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: color != null
-                  ? [color!.withOpacity(0.88), color!.withOpacity(0.68)]
-                  : [
-                      const Color(0xCC1E2538),
-                      const Color(0xAA131824),
-                    ],
-            ),
-            borderRadius: radius,
-            border: Border.all(
-              color: Colors.white.withOpacity(0.16),
-              width: 1.05,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: glow.withOpacity(0.12),
-                blurRadius: 18,
-                spreadRadius: 0.5,
-                offset: const Offset(0, 4),
-              ),
-              const BoxShadow(
-                color: Color(0x44000000),
-                blurRadius: 12,
-                offset: Offset(0, 6),
-              ),
-            ],
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: color != null
+                ? [color!.withOpacity(0.88), color!.withOpacity(0.68)]
+                : [
+                    const Color(0xD91E2538),
+                    const Color(0xCC121724),
+                  ],
           ),
-          child: Padding(padding: padding, child: child),
+          borderRadius: radius,
+          border: Border.all(
+            color: Colors.white.withOpacity(0.16),
+            width: 1.05,
+          ),
+          boxShadow: const [],
         ),
+        child: Padding(padding: padding, child: child),
       ),
     );
 

@@ -21,7 +21,10 @@ class RoutinesPage extends StatefulWidget {
   State<RoutinesPage> createState() => RoutinesPageState();
 }
 
-class RoutinesPageState extends State<RoutinesPage> {
+class RoutinesPageState extends State<RoutinesPage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> tasks = [];
 
   @override
@@ -90,6 +93,7 @@ class RoutinesPageState extends State<RoutinesPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -159,7 +163,7 @@ class RoutinesPageState extends State<RoutinesPage> {
               ],
             )
           : ListView(
-              physics: const ClampingScrollPhysics(),
+              physics: const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
               padding: const EdgeInsets.only(bottom: 150),
               children: [
                 SectionLabel('Today’s routine (Tap to edit)', subtitle: '${tasks.length} tasks'),

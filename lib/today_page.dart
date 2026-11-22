@@ -36,7 +36,10 @@ class TodayPage extends StatefulWidget {
   State<TodayPage> createState() => TodayPageState();
 }
 
-class TodayPageState extends State<TodayPage> {
+class TodayPageState extends State<TodayPage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> tasks = [];
   bool loading = true;
   bool subtasksEnabled = true;
@@ -228,6 +231,7 @@ class TodayPageState extends State<TodayPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final isToday = DateUtils.isSameDay(widget.date, DateTime.now());
 
     return Scaffold(
@@ -332,7 +336,7 @@ class TodayPageState extends State<TodayPage> {
               backgroundColor: AppColors.surface,
               onRefresh: () async => widget.onChanged(),
               child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
+                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)),
                 padding: const EdgeInsets.only(bottom: 120),
                 children: [
                   _dateHeader(isToday),

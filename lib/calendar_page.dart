@@ -23,7 +23,10 @@ class CalendarPage extends StatefulWidget {
   State<CalendarPage> createState() => CalendarPageState();
 }
 
-class CalendarPageState extends State<CalendarPage> {
+class CalendarPageState extends State<CalendarPage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   DateTime month = DateTime.now();
   Map<String, double> scores = {};
   List<Map<String, dynamic>> selectedTasks = [];
@@ -77,6 +80,7 @@ class CalendarPageState extends State<CalendarPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final first = DateTime(month.year, month.month, 1);
     final days = DateTime(month.year, month.month + 1, 0).day;
     final leading = first.weekday % 7;
@@ -99,7 +103,7 @@ class CalendarPageState extends State<CalendarPage> {
         backgroundColor: AppColors.surface,
         onRefresh: load,
         child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)),
           padding: const EdgeInsets.only(bottom: 120),
           children: [
             GlassCard(

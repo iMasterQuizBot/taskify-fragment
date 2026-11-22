@@ -25,7 +25,10 @@ class StatisticsPage extends StatefulWidget {
   State<StatisticsPage> createState() => StatisticsPageState();
 }
 
-class StatisticsPageState extends State<StatisticsPage> {
+class StatisticsPageState extends State<StatisticsPage> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   List<Map<String, dynamic>> tasks = [];
   List<Map<String, dynamic>> selectedDayTasks = [];
   List<Map<String, dynamic>> allCategories = [];
@@ -298,6 +301,7 @@ class StatisticsPageState extends State<StatisticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (loading) {
       return const Scaffold(
         backgroundColor: Colors.transparent,
@@ -335,7 +339,7 @@ class StatisticsPageState extends State<StatisticsPage> {
         color: AppColors.violet,
         backgroundColor: AppColors.surface,
         child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
+          physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast)),
           padding: const EdgeInsets.only(bottom: 120),
           children: [
             GlassCard(

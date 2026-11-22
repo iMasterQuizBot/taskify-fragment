@@ -757,7 +757,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const Positioned.fill(child: AmbientBackground()),
           SafeArea(
             child: ListView(
-        physics: const ClampingScrollPhysics(),
+        physics: const BouncingScrollPhysics(decelerationRate: ScrollDecelerationRate.fast),
         padding: const EdgeInsets.only(bottom: 120),
         children: [
           // ===================== App Basics =====================

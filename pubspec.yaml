@@ -28,6 +28,8 @@ dependencies:
   web_socket_channel: ^3.0.0
   webview_flutter: ^4.10.0
   webview_flutter_android: ^4.0.0
+  local_auth: ^2.3.0
+  pdf: ^3.11.1
 
 dev_dependencies:
   flutter_test:

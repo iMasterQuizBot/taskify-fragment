@@ -1203,14 +1203,10 @@ class TodayPageState extends State<TodayPage> {
             ),
             const SizedBox(height: 10),
             Text(
-              '• कुल सक्रिय टास्क: $active
-'
-              '• पूरे हुए: $completed (${(progress * 100).round()}%)
-'
-              '• बाकी पेंडिंग: ${pendingList.length}
-'
-              '• हाई-प्रायोरिटी बाकी: ${highPri.length}
-'
+              '• कुल सक्रिय टास्क: $active\n'
+              '• पूरे हुए: $completed (${(progress * 100).round()}%)\n'
+              '• बाकी पेंडिंग: ${pendingList.length}\n'
+              '• हाई-प्रायोरिटी बाकी: ${highPri.length}\n'
               '• 🔥 करंट स्ट्रीक: $currentStreak दिन',
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 13.5, height: 1.55),
             ),

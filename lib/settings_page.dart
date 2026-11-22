@@ -628,17 +628,18 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> testNotification() async {
-    try {
-      await NotificationService.requestNotificationPermission();
-      await NotificationService.showTest();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Test notification भेजा गया')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Notification error: $e')));
-    }
+    await NotificationService.requestNotificationPermission();
+    final ok = await NotificationService.showTest();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Test notification भेजा गया'
+              : 'Notification भेजने में दिक्कत आई। Notification permission चेक करें।',
+        ),
+      ),
+    );
   }
 
   Future<void> checkNotificationPermissions() async {

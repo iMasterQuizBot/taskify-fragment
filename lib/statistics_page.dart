@@ -11,12 +11,14 @@ class StatisticsPage extends StatefulWidget {
   final AppDatabase db;
   final DateTime targetDate;
   final ValueChanged<DateTime> onDatePicked;
+  final VoidCallback onOpenSettings;
 
   const StatisticsPage({
     super.key,
     required this.db,
     required this.targetDate,
     required this.onDatePicked,
+    required this.onOpenSettings,
   });
 
   @override
@@ -26,6 +28,7 @@ class StatisticsPage extends StatefulWidget {
 class StatisticsPageState extends State<StatisticsPage> {
   List<Map<String, dynamic>> tasks = [];
   List<Map<String, dynamic>> selectedDayTasks = [];
+  List<Map<String, dynamic>> allCategories = [];
   bool loading = true;
   late DateTime activeDate;
 
@@ -45,6 +48,7 @@ class StatisticsPageState extends State<StatisticsPage> {
     setState(() => loading = true);
     tasks = await widget.db.allTasks();
     selectedDayTasks = await widget.db.getTasks(activeDate);
+    allCategories = await widget.db.categories();
     if (mounted) setState(() => loading = false);
   }
 
@@ -322,6 +326,9 @@ class StatisticsPageState extends State<StatisticsPage> {
           'Insights',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.6),
         ),
+        actions: [
+          GlobalSettingsButton(onTap: widget.onOpenSettings),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: load,
@@ -435,6 +442,11 @@ class StatisticsPageState extends State<StatisticsPage> {
                 ],
               ),
             ),
+            SectionLabel(
+              'Category-wise stats',
+              subtitle: dateLabel,
+            ),
+            ..._buildCategoryStats(),
           ],
         ),
       ),
@@ -538,5 +550,204 @@ class StatisticsPageState extends State<StatisticsPage> {
         ],
       ),
     );
+  }
+
+  IconData _categoryIcon(String name) {
+    switch (name.toLowerCase()) {
+      case 'exercise':
+      case 'workout':
+        return Icons.fitness_center_rounded;
+      case 'family':
+        return Icons.family_restroom_rounded;
+      case 'health':
+        return Icons.favorite_rounded;
+      case 'learning':
+        return Icons.menu_book_rounded;
+      case 'personal':
+        return Icons.person_rounded;
+      case 'study':
+        return Icons.school_rounded;
+      case 'work':
+      case 'deep work':
+        return Icons.work_rounded;
+      default:
+        return Icons.category_rounded;
+    }
+  }
+
+  void _showCategoryTasks(String categoryName, Color color) {
+    final filtered = selectedDayTasks
+        .where((t) => t['category'].toString().toLowerCase() == categoryName.toLowerCase())
+        .toList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF131823),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => Container(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              '${DateFormat('d MMM').format(activeDate)} • $categoryName (${filtered.length})',
+              style: TextStyle(color: color, fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            if (filtered.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('No $categoryName tasks found for this date.', style: const TextStyle(color: Colors.white54)),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: filtered.length,
+                  itemBuilder: (_, i) {
+                    final item = filtered[i];
+                    final done = item['status'] == 'completed';
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        done ? Icons.check_circle_rounded : Icons.schedule_rounded,
+                        size: 16,
+                        color: done ? AppColors.emerald : color,
+                      ),
+                      title: Text(
+                        item['title'],
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5),
+                      ),
+                      subtitle: Text(
+                        taskTime(item),
+                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      ),
+                      trailing: GlowBadge(text: item['status'].toString(), color: done ? AppColors.emerald : color),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildCategoryStats() {
+    const coreNames = ['Exercise', 'Family', 'Health', 'Learning', 'Other', 'Personal', 'Study', 'Work'];
+    final seen = <String>{};
+    final List<({String name, String? hex})> ordered = [];
+
+    for (final name in coreNames) {
+      final match = allCategories.where((c) => c['name'].toString().toLowerCase() == name.toLowerCase()).toList();
+      final hex = match.isNotEmpty ? match.first['colorHex']?.toString() : null;
+      ordered.add((name: name, hex: hex));
+      seen.add(name.toLowerCase());
+    }
+    for (final c in allCategories) {
+      final n = c['name'].toString();
+      if (!seen.contains(n.toLowerCase())) {
+        ordered.add((name: n, hex: c['colorHex']?.toString()));
+        seen.add(n.toLowerCase());
+      }
+    }
+    for (final t in selectedDayTasks) {
+      final n = t['category'].toString();
+      if (!seen.contains(n.toLowerCase())) {
+        ordered.add((name: n, hex: null));
+        seen.add(n.toLowerCase());
+      }
+    }
+
+    return ordered.map((cat) {
+      final catTasks = selectedDayTasks
+          .where((t) => t['category'].toString().toLowerCase() == cat.name.toLowerCase())
+          .toList();
+      final activeTasks = catTasks.where((t) => t['status'] != 'skipped').toList();
+      final doneTasks = activeTasks.where((t) => t['status'] == 'completed').toList();
+      final pct = activeTasks.isEmpty ? 0.0 : doneTasks.length / activeTasks.length;
+
+      int completedMins = 0;
+      for (final t in doneTasks) {
+        final start = t['startMinutes'] as int;
+        final end = (t['endMinutes'] as int?) ?? (start + 60);
+        completedMins += max(0, end - start);
+      }
+      final hrs = completedMins ~/ 60;
+      final mins = completedMins % 60;
+      final timeText = completedMins == 0 ? '0m' : (hrs > 0 ? '${hrs}h ${mins}m' : '${mins}m');
+      final accent = categoryColor(cat.name, customHex: cat.hex);
+
+      return GlassCard(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3.5),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        onTap: () => _showCategoryTasks(cat.name, accent),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: accent.withOpacity(0.14),
+                borderRadius: BorderRadius.circular(11),
+                border: Border.all(color: accent.withOpacity(0.24)),
+              ),
+              child: Icon(_categoryIcon(cat.name), color: accent, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          cat.name,
+                          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 13.5),
+                        ),
+                      ),
+                      Text(
+                        '${doneTasks.length}/${activeTasks.length} • $timeText',
+                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: pct,
+                      minHeight: 4.5,
+                      backgroundColor: Colors.white.withOpacity(0.06),
+                      valueColor: AlwaysStoppedAnimation(accent),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '${(pct * 100).round()}%',
+              style: TextStyle(color: accent, fontWeight: FontWeight.w900, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }).toList();
   }
 }

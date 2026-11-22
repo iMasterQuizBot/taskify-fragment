@@ -16,7 +16,7 @@ class AppDatabase {
 
     _db = await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -62,6 +62,19 @@ class AppDatabase {
             tasksJson TEXT NOT NULL
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel TEXT NOT NULL,
+            role TEXT NOT NULL,
+            text TEXT NOT NULL,
+            imageBase64 TEXT,
+            deepSeekQuery TEXT,
+            createdAt TEXT NOT NULL
+          )
+        ''');
+
 
         final defaultCats = [
           {'name': 'Study', 'color': '#2563EB'},
@@ -118,6 +131,19 @@ class AppDatabase {
             await db.execute('ALTER TABLE categories ADD COLUMN colorHex TEXT');
             await db.update('categories', {'colorHex': '#2563EB'}, where: "name = 'Study' OR name = 'Learning'");
           } catch (_) {}
+        }
+        if (oldV < 7) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS ai_messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              channel TEXT NOT NULL,
+              role TEXT NOT NULL,
+              text TEXT NOT NULL,
+              imageBase64 TEXT,
+              deepSeekQuery TEXT,
+              createdAt TEXT NOT NULL
+            )
+          ''');
         }
       },
     );
@@ -576,5 +602,39 @@ class AppDatabase {
         startMinutes,
       );
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getAiMessages(String channel) async {
+    return db.query(
+      'ai_messages',
+      where: 'channel = ?',
+      whereArgs: [channel],
+      orderBy: 'id ASC',
+    );
+  }
+
+  Future<int> addAiMessage({
+    required String channel,
+    required String role,
+    required String text,
+    String? imageBase64,
+    String? deepSeekQuery,
+  }) async {
+    return db.insert('ai_messages', {
+      'channel': channel,
+      'role': role,
+      'text': text,
+      'imageBase64': imageBase64,
+      'deepSeekQuery': deepSeekQuery,
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<void> deleteAiMessage(int id) async {
+    await db.delete('ai_messages', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearAiMessages(String channel) async {
+    await db.delete('ai_messages', where: 'channel = ?', whereArgs: [channel]);
   }
 }

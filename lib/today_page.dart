@@ -9,7 +9,7 @@ import 'app_theme.dart';
 import 'focus_timer_dialog.dart';
 import 'helpers.dart';
 import 'task_dialog.dart';
-import 'ai_assistant_screen.dart';
+import 'live_voice_screen.dart';
 import 'widgets/ai_orb_icon.dart';
 
 class TodayPage extends StatefulWidget {
@@ -19,6 +19,7 @@ class TodayPage extends StatefulWidget {
   final VoidCallback onChanged;
   final void Function(Offset position) onCelebrate;
   final VoidCallback onResetToToday;
+  final VoidCallback onOpenSettings;
 
   const TodayPage({
     super.key,
@@ -28,6 +29,7 @@ class TodayPage extends StatefulWidget {
     required this.onChanged,
     required this.onCelebrate,
     required this.onResetToToday,
+    required this.onOpenSettings,
   });
 
   @override
@@ -274,22 +276,17 @@ class TodayPageState extends State<TodayPage> {
                 ),
               ]
             : [
-                // FIX: पहले यहाँ ठोस sparkle आइकन था और नीचे dock में अलग "AI" tab भी
-                // था — दो अलग जगह एक ही AI के लिए। अब दोनों जगह एक जैसा जीवंत
-                // "live AI bubble" (Perplexity-स्टाइल स्फेरिकल एनिमेशन) दिखेगा, और
-                // यही आइकन Taskify की पूरी एआई चैट (फ़ोटो सवाल, आवाज़, AI Settings
-                // तक जाने वाला gear — सब कुछ) खोलता है, कोई feature नहीं हटा।
                 Container(
                   margin: const EdgeInsets.only(right: 4),
                   child: IconButton(
-                    tooltip: 'Taskify AI (लाइव बबल)',
+                    tooltip: 'Live Voice AI (Offline & API)',
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => AiAssistantScreen(db: widget.db, onChanged: widget.onChanged),
+                        builder: (_) => LiveVoiceScreen(db: widget.db, onChanged: widget.onChanged),
                       ),
                     ),
-                    icon: const AiOrbIcon(size: 19),
+                    icon: const AiOrbIcon(size: 19, state: AiOrbState.idle),
                   ),
                 ),
                 Container(
@@ -306,9 +303,7 @@ class TodayPageState extends State<TodayPage> {
                   ),
                 ),
                 Container(
-                  // राइट में margin बढ़ाया — ऊपर टॉप-राइट पर अब हमेशा दिखने वाला
-                  // global Settings gear (main_screen.dart) रहता है, उससे टकराना नहीं चाहिए।
-                  margin: const EdgeInsets.only(right: 58),
+                  margin: const EdgeInsets.only(right: 8),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.06),
                     shape: BoxShape.circle,
@@ -320,6 +315,7 @@ class TodayPageState extends State<TodayPage> {
                     icon: const Icon(Icons.refresh_rounded, size: 20, color: Colors.white70),
                   ),
                 ),
+                GlobalSettingsButton(onTap: widget.onOpenSettings),
               ],
       ),
       body: loading
@@ -598,20 +594,25 @@ class TodayPageState extends State<TodayPage> {
 
   Widget _reminderToggle(Map<String, dynamic> task) {
     final on = task['reminder'] == 1 || task['reminder'] == true;
-    return IconButton(
-      tooltip: on ? 'Notification बंद करें' : 'Notification चालू करें',
-      visualDensity: VisualDensity.compact,
-      icon: Icon(
-        on ? Icons.notifications_active_rounded : Icons.notifications_off_outlined,
-        size: 19,
-        color: on ? AppColors.amber : AppColors.textMuted,
+    return Tooltip(
+      message: on ? 'Notification बंद करें' : 'Notification चालू करें',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () async {
+          final newOn = !on;
+          await widget.db.setTaskReminder(task['id'] as int, newOn);
+          if (!mounted) return;
+          setState(() => task['reminder'] = newOn ? 1 : 0);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: Icon(
+            on ? Icons.notifications_active_rounded : Icons.notifications_off_outlined,
+            size: 15,
+            color: on ? AppColors.amber : AppColors.textMuted,
+          ),
+        ),
       ),
-      onPressed: () async {
-        final newOn = !on;
-        await widget.db.setTaskReminder(task['id'] as int, newOn);
-        if (!mounted) return;
-        setState(() => task['reminder'] = newOn ? 1 : 0);
-      },
     );
   }
 
@@ -682,7 +683,6 @@ class TodayPageState extends State<TodayPage> {
                 else
                   _statusButton(task, accent),
                 const SizedBox(width: 11),
-                if (!isSelectionMode) _reminderToggle(task),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -711,6 +711,10 @@ class TodayPageState extends State<TodayPage> {
                               margin: const EdgeInsets.only(left: 6),
                               decoration: BoxDecoration(color: priorityColor(task['priority']), shape: BoxShape.circle),
                             ),
+                          if (!isSelectionMode) ...[
+                            const SizedBox(width: 4),
+                            _reminderToggle(task),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 3),

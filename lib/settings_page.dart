@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -699,13 +698,18 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: AppColors.background,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         toolbarHeight: 68,
         titleSpacing: 20,
         title: const Text('Settings', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.6)),
       ),
-      body: ListView(
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AmbientBackground()),
+          SafeArea(
+            child: ListView(
         physics: const ClampingScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 120),
         children: [
@@ -961,6 +965,9 @@ class _SettingsPageState extends State<SettingsPage> {
             title: 'Delete All Data',
             subtitle: 'Double confirmation required.',
             onTap: deleteAll,
+          ),
+        ],
+      ),
           ),
         ],
       ),

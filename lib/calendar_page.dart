@@ -9,12 +9,14 @@ class CalendarPage extends StatefulWidget {
   final AppDatabase db;
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
+  final VoidCallback onOpenSettings;
 
   const CalendarPage({
     super.key,
     required this.db,
     required this.selectedDate,
     required this.onDateSelected,
+    required this.onOpenSettings,
   });
 
   @override
@@ -88,6 +90,9 @@ class CalendarPageState extends State<CalendarPage> {
           'Calendar',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.6),
         ),
+        actions: [
+          GlobalSettingsButton(onTap: widget.onOpenSettings),
+        ],
       ),
       body: RefreshIndicator(
         color: AppColors.violet,

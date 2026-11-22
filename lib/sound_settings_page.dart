@@ -123,8 +123,12 @@ class _SoundSettingsPageState extends State<SoundSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Sound & Notifications')),
-      body: ListView(
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AmbientBackground()),
+          ListView(
         padding: const EdgeInsets.all(14),
         children: [
           _sectionTitle('नोटिफिकेशन और अलार्म'),
@@ -227,6 +231,8 @@ class _SoundSettingsPageState extends State<SoundSettingsPage> {
             'नोट: Android में नोटिफिकेशन का साउंड बदलने पर नया चैनल बनता है, इसलिए पहला नोटिफिकेशन पुराने साउंड से आ सकता है।',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12, height: 1.4),
           ),
+        ],
+      ),
         ],
       ),
     );

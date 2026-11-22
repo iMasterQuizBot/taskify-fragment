@@ -310,3 +310,76 @@ class SectionLabel extends StatelessWidget {
     );
   }
 }
+
+class AmbientBackground extends StatelessWidget {
+  const AmbientBackground({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: IgnorePointer(
+        child: Stack(
+          children: [
+            Positioned(
+              top: -180,
+              right: -160,
+              child: Container(
+                width: 420,
+                height: 420,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [AppColors.violet.withOpacity(0.14), Colors.transparent]),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 50,
+              left: -220,
+              child: Container(
+                width: 500,
+                height: 500,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [AppColors.cyan.withOpacity(0.08), Colors.transparent]),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class GlobalSettingsButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const GlobalSettingsButton({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 12),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xEB151A24),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.10)),
+              boxShadow: const [
+                BoxShadow(color: Color(0x55000000), blurRadius: 10, offset: Offset(0, 4)),
+              ],
+            ),
+            child: const Icon(Icons.settings_rounded, size: 20, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}

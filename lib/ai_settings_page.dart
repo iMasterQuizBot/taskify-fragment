@@ -144,44 +144,129 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     _msg('Live आवाज़: $chosen');
   }
 
+  bool _isIndianHindiOrEnglish(Map<String, String> v) {
+    final loc = (v['locale'] ?? '').toLowerCase().replaceAll('_', '-').trim();
+    if (loc == 'hi-in' || loc == 'en-in') return true;
+    if (loc.startsWith('hi-in-') || loc.startsWith('en-in-')) return true;
+    if (loc == 'hi') return true;
+    return false;
+  }
+
   Future<void> _pickDeviceVoice() async {
-    final voices = await TtsVoice.available(_tts);
+    final allVoices = await TtsVoice.available(_tts);
     if (!mounted) return;
+    final voices = allVoices.where(_isIndianHindiOrEnglish).toList();
     if (voices.isEmpty) {
-      _msg('फ़ोन पर बोलने वाली आवाज़ें नहीं मिलीं। Google Text-to-Speech इंस्टॉल करें।');
+      _msg('फ़ोन पर भारतीय (हिंदी/English) आवाज़ें नहीं मिलीं। नीचे डाउनलोड बटन से डेटा इंस्टॉल करें।');
       return;
     }
 
-    // FIX: पहले यहाँ raw system नाम ("te-IN-language (te-IN)") दिखता था, जिसे
-    // पढ़ना मुश्किल था — इसी वजह से गलती से दूसरी भाषा की आवाज़ चुन ली जाती थी।
-    // अब देश + भाषा + ऑफ़लाइन/ऑनलाइन साफ़-साफ़ दिखेगा, और भाषा के हिसाब से
-    // क्रम में लगा दिया गया है ताकि अपनी भाषा ढूँढना आसान हो।
     final withLabels = voices
         .map((v) => (voice: v, label: TtsVoiceLabels.simpleLabel(v['locale'] ?? '', v['name'] ?? '')))
         .toList()
       ..sort((a, b) => a.label.compareTo(b.label));
 
+    String? playingKey;
+
     final chosen = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('बोलने वाली आवाज़ चुनें'),
-        children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, {'name': '', 'locale': ''}),
-            child: const Text('डिफ़ॉल्ट (फ़ोन की आवाज़)', style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(24, 6, 24, 2),
-            child: Divider(height: 1),
-          ),
-          for (final item in withLabels)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, item.voice),
-              child: Text(item.label, style: const TextStyle(fontSize: 13.5)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          _tts.setCompletionHandler(() {
+            if (ctx.mounted) setDlg(() => playingKey = null);
+          });
+          _tts.setCancelHandler(() {
+            if (ctx.mounted) setDlg(() => playingKey = null);
+          });
+          _tts.setErrorHandler((_) {
+            if (ctx.mounted) setDlg(() => playingKey = null);
+          });
+
+          Future<void> togglePreview(Map<String, String> v) async {
+            final key = '${v['locale']}_${v['name']}';
+            if (playingKey == key) {
+              await _tts.stop();
+              if (ctx.mounted) setDlg(() => playingKey = null);
+              return;
+            }
+            await _tts.stop();
+            final loc = v['locale'] ?? 'hi-IN';
+            final name = v['name'] ?? '';
+            await _tts.setSpeechRate(_rate);
+            if (loc.isNotEmpty) await _tts.setLanguage(loc);
+            if (name.isNotEmpty && loc.isNotEmpty) {
+              await _tts.setVoice({'name': name, 'locale': loc});
+            }
+            if (ctx.mounted) setDlg(() => playingKey = key);
+            final sample = loc.toLowerCase().startsWith('en')
+                ? 'Hello, I am your Taskify AI assistant.'
+                : 'नमस्ते, मैं आपका Taskify AI सहायक हूँ।';
+            await _tts.speak(sample);
+          }
+
+          return AlertDialog(
+            title: Row(
+              children: [
+                const Expanded(
+                  child: Text('भारतीय आवाज़ चुनें (हिंदी / English)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                ),
+                IconButton(
+                  tooltip: 'आवाज़ डाउनलोड / मैनेज करें',
+                  icon: const Icon(Icons.download_rounded, color: AppColors.cyan),
+                  onPressed: _openVoiceDataManager,
+                ),
+              ],
             ),
-        ],
+            contentPadding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 360,
+              child: ListView(
+                children: [
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.record_voice_over_rounded, color: AppColors.violet),
+                    title: const Text('डिफ़ॉल्ट (फ़ोन की आवाज़)', style: TextStyle(fontWeight: FontWeight.w700)),
+                    onTap: () => Navigator.pop(ctx, {'name': '', 'locale': ''}),
+                  ),
+                  const Divider(height: 1),
+                  for (final item in withLabels)
+                    Builder(
+                      builder: (_) {
+                        final v = item.voice;
+                        final key = '${v['locale']}_${v['name']}';
+                        final isPlaying = playingKey == key;
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          title: Text(item.label, style: const TextStyle(fontSize: 13)),
+                          trailing: _AnimatedVoicePlayButton(
+                            isPlaying: isPlaying,
+                            onTap: () => togglePreview(v),
+                          ),
+                          onTap: () => Navigator.pop(ctx, v),
+                        );
+                      },
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton.icon(
+                onPressed: _openVoiceDataManager,
+                icon: const Icon(Icons.download_rounded, size: 17, color: AppColors.cyan),
+                label: const Text('डाउनलोड / मैनेज'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('रद्द करें'),
+              ),
+            ],
+          );
+        },
       ),
     );
+    await _tts.stop();
     if (chosen == null) return;
     await widget.db.setSetting('ttsVoiceName', chosen['name'] ?? '');
     await widget.db.setSetting('ttsVoiceLocale', chosen['locale'] ?? '');
@@ -232,8 +317,12 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('AI Assistant Settings')),
-      body: ListView(
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AmbientBackground()),
+          ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _card(
@@ -431,6 +520,8 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
           ),
         ],
       ),
+        ],
+      ),
     );
   }
 
@@ -452,6 +543,99 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
           child,
         ],
       ),
+    );
+  }
+}
+
+class _AnimatedVoicePlayButton extends StatefulWidget {
+  final bool isPlaying;
+  final VoidCallback onTap;
+
+  const _AnimatedVoicePlayButton({required this.isPlaying, required this.onTap});
+
+  @override
+  State<_AnimatedVoicePlayButton> createState() => _AnimatedVoicePlayButtonState();
+}
+
+class _AnimatedVoicePlayButtonState extends State<_AnimatedVoicePlayButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 650),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isPlaying) _pulse.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedVoicePlayButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying && !oldWidget.isPlaying) {
+      _pulse.repeat(reverse: true);
+    } else if (!widget.isPlaying && oldWidget.isPlaying) {
+      _pulse.stop();
+      _pulse.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (_, __) {
+        final scale = widget.isPlaying ? (1.0 + _pulse.value * 0.14) : 1.0;
+        return Transform.scale(
+          scale: scale,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: widget.onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.isPlaying
+                    ? AppColors.cyan.withOpacity(0.24)
+                    : Colors.white.withOpacity(0.06),
+                border: Border.all(
+                  color: widget.isPlaying
+                      ? AppColors.cyan
+                      : Colors.white.withOpacity(0.14),
+                  width: widget.isPlaying ? 1.6 : 1.0,
+                ),
+                boxShadow: widget.isPlaying
+                    ? [
+                        BoxShadow(
+                          color: AppColors.cyan.withOpacity(0.35 + _pulse.value * 0.25),
+                          blurRadius: 10,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                child: Icon(
+                  widget.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  key: ValueKey(widget.isPlaying),
+                  size: 20,
+                  color: widget.isPlaying ? AppColors.cyan : Colors.white,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

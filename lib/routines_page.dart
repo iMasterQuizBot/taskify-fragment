@@ -8,8 +8,14 @@ import 'task_dialog.dart';
 class RoutinesPage extends StatefulWidget {
   final AppDatabase db;
   final VoidCallback onChanged;
+  final VoidCallback onOpenSettings;
 
-  const RoutinesPage({super.key, required this.db, required this.onChanged});
+  const RoutinesPage({
+    super.key,
+    required this.db,
+    required this.onChanged,
+    required this.onOpenSettings,
+  });
 
   @override
   State<RoutinesPage> createState() => RoutinesPageState();
@@ -95,9 +101,7 @@ class RoutinesPageState extends State<RoutinesPage> {
         ),
         actions: [
           Container(
-            // राइट में margin बढ़ाया — ऊपर टॉप-राइट पर अब हमेशा दिखने वाला
-            // global Settings gear (main_screen.dart) रहता है, उससे टकराना नहीं चाहिए।
-            margin: const EdgeInsets.only(right: 58),
+            margin: const EdgeInsets.only(right: 8),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.045),
               shape: BoxShape.circle,
@@ -109,6 +113,7 @@ class RoutinesPageState extends State<RoutinesPage> {
               icon: const Icon(Icons.content_copy_rounded, size: 19),
             ),
           ),
+          GlobalSettingsButton(onTap: widget.onOpenSettings),
         ],
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,

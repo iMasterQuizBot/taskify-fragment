@@ -9,7 +9,6 @@ import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
 import 'statistics_page.dart';
 import 'today_page.dart';
-import 'widgets/ai_orb_icon.dart';
 
 class MainScreen extends StatefulWidget {
   final AppDatabase db;
@@ -114,9 +113,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // अब Settings किसी tab में नहीं, बल्कि हर tab के ऊपर, टॉप-राइट में एक पक्का
-  // (persistent) gear आइकन है — सभी 4 tabs (Today/Calendar/Stats/Routines) में
-  // हमेशा वहीं दिखेगा। टैप करते ही सीधे Settings खुल जाता है।
   void _openSettings() {
     Navigator.push(
       context,
@@ -143,12 +139,14 @@ class _MainScreenState extends State<MainScreen> {
         onChanged: globalRefresh,
         onCelebrate: triggerCompletionCelebration,
         onResetToToday: resetToToday,
+        onOpenSettings: _openSettings,
       ),
       CalendarPage(
         key: calendarKey,
         db: widget.db,
         selectedDate: selectedDate,
         onDateSelected: handleDateSelect,
+        onOpenSettings: _openSettings,
       ),
       StatisticsPage(
         key: statsKey,
@@ -158,11 +156,13 @@ class _MainScreenState extends State<MainScreen> {
           handleDateSelect(date);
           pageController.jumpToPage(0);
         },
+        onOpenSettings: _openSettings,
       ),
       RoutinesPage(
         key: routinesKey,
         db: widget.db,
         onChanged: globalRefresh,
+        onOpenSettings: _openSettings,
       ),
     ];
 
@@ -171,18 +171,12 @@ class _MainScreenState extends State<MainScreen> {
       extendBody: true,
       body: Stack(
         children: [
-          const Positioned.fill(child: _AmbientBackground()),
+          const Positioned.fill(child: AmbientBackground()),
           PageView(
             controller: pageController,
             onPageChanged: (idx) => setState(() => currentIndex = idx),
             physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             children: pages,
-          ),
-          // --- Persistent Settings gear: हर tab पर टॉप-राइट, सबसे ऊपर ---
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 14,
-            right: 8,
-            child: _GlobalSettingsButton(onTap: _openSettings),
           ),
         ],
       ),
@@ -191,77 +185,6 @@ class _MainScreenState extends State<MainScreen> {
         selectedIndex: currentIndex,
         onChanged: (i) => pageController.animateToPage(i, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic),
         onOpenAI: _openDeepSeek,
-      ),
-    );
-  }
-}
-
-/// हर पेज पर एक जैसा दिखने वाला, टॉप-राइट पर टिका Settings बटन।
-class _GlobalSettingsButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _GlobalSettingsButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: const Color(0xEB151A24),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
-            boxShadow: const [
-              BoxShadow(color: Color(0x55000000), blurRadius: 10, offset: Offset(0, 4)),
-            ],
-          ),
-          child: const Icon(Icons.settings_rounded, size: 20, color: Colors.white),
-        ),
-      ),
-    );
-  }
-}
-
-class _AmbientBackground extends StatelessWidget {
-  const _AmbientBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: IgnorePointer(
-        child: Stack(
-          children: [
-            Positioned(
-              top: -180,
-              right: -160,
-              child: Container(
-                width: 420,
-                height: 420,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(colors: [AppColors.violet.withOpacity(0.14), Colors.transparent]),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: 50,
-              left: -220,
-              child: Container(
-                width: 500,
-                height: 500,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(colors: [AppColors.cyan.withOpacity(0.08), Colors.transparent]),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -363,11 +286,11 @@ class _LiquidFloatingDock extends StatelessWidget {
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: onOpenAI,
-                        child: Column(
+                        child: const Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const AiOrbIcon(size: 17),
-                            const SizedBox(height: 2),
+                            Icon(Icons.auto_awesome_rounded, size: 21, color: AppColors.cyan),
+                            SizedBox(height: 2),
                             Text(
                               'AI',
                               style: TextStyle(

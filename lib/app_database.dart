@@ -799,8 +799,8 @@ class AppDatabase {
     );
   }
 
-  /// आज के छूटे हुए (Overdue) टास्क को 1-टैप में अगले खाली स्लॉट या कल पर शिफ़्ट करें
-  Future<int> rescheduleOverdueTasks(DateTime date) async {
+  /// आज के छूटे हुए (Overdue) टास्क को अगले खाली स्लॉट या चुने गए समय पर शिफ़्ट करें
+  Future<int> rescheduleOverdueTasks(DateTime date, {int? customStartMinutes}) async {
     final now = DateTime.now();
     final isToday = dateKey(date) == dateKey(now);
     if (!isToday) return 0;
@@ -815,8 +815,7 @@ class AppDatabase {
 
     if (overdue.isEmpty) return 0;
 
-    // अगले राउंड 30-मिनट स्लॉट से शुरू करें
-    int cursor = ((currentMins + 29) ~/ 30) * 30;
+    int cursor = customStartMinutes ?? (((currentMins + 29) ~/ 30) * 30);
     int moved = 0;
 
     for (final t in overdue) {

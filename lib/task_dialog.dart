@@ -226,6 +226,31 @@ class _TaskDialogState extends State<TaskDialog> {
       return;
     }
 
+    // टाइम कॉनफ़्लिक्ट / ओवरलैप चेक
+    final existingTasks = await widget.db.getTasks(widget.date);
+    final newStart = startMinutes;
+    final newEnd = endMinutes ?? (startMinutes + 30);
+    final editingId = widget.task?['id'];
+    Map<String, dynamic>? conflict;
+    for (final t in existingTasks) {
+      if (editingId != null && t['id'] == editingId) continue;
+      if (t['status'] == 'skipped') continue;
+      final tStart = t['startMinutes'] as int;
+      final tEnd = (t['endMinutes'] as int?) ?? (tStart + 30);
+      if (newStart < tEnd && newEnd > tStart) {
+        conflict = t;
+        break;
+      }
+    }
+    if (conflict != null && mounted) {
+      final proceed = await confirm(
+        context,
+        'Time Overlap Detected',
+        '"${conflict['title']}" (${taskTime(conflict)}) पहले से इस समय पर शेड्यूल है। क्या आप फिर भी सेव करना चाहते हैं?',
+      );
+      if (!proceed) return;
+    }
+
     final desc = descriptionController.text.trim();
     final note = notesController.text.trim();
     final subtasksJson = jsonEncode(subtasks);
@@ -397,6 +422,25 @@ class _TaskDialogState extends State<TaskDialog> {
             category: category,
             priority: priority,
             repeatType: repeatType,
+            notes: note,
+            reminder: reminder,
+            subtasks: subtasksJson,
+            attachmentPath: attach,
+          );
+        }
+      } else if (repeatType == 'spaced') {
+        for (final offset in [0, 1, 3, 7, 21]) {
+          final target = widget.date.add(Duration(days: offset));
+          final suffix = offset == 0 ? '' : ' (Rev +${offset}d)';
+          await widget.db.addTask(
+            date: target,
+            title: '$title$suffix',
+            description: desc,
+            startMinutes: startMinutes,
+            endMinutes: endMinutes,
+            category: category,
+            priority: priority,
+            repeatType: 'once',
             notes: note,
             reminder: reminder,
             subtasks: subtasksJson,
@@ -655,6 +699,7 @@ class _TaskDialogState extends State<TaskDialog> {
                   DropdownMenuItem(value: 'weekends', child: Text('Weekends (Sat-Sun)')),
                   DropdownMenuItem(value: 'custom_days', child: Text('Custom Day (हफ़्ते के दिन)')),
                   DropdownMenuItem(value: 'custom_dates', child: Text('Custom Date (कैलेंडर तारीखें)')),
+                  DropdownMenuItem(value: 'spaced', child: Text('Spaced Revision (1, 3, 7, 21 दिन)')),
                 ],
                 onChanged: (val) {
                   if (val != null) setState(() => repeatType = val);

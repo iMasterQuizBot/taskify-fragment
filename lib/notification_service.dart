@@ -242,4 +242,41 @@ class NotificationService {
       return false;
     }
   }
+
+  static const int focusTimerNotifId = 888001;
+
+  static Future<void> showOngoingFocusTimer({
+    required String title,
+    required String phase,
+    required int secondsLeft,
+  }) async {
+    try {
+      await init();
+      final mins = (secondsLeft ~/ 60).toString().padLeft(2, '0');
+      final secs = (secondsLeft % 60).toString().padLeft(2, '0');
+      const android = AndroidNotificationDetails(
+        'taskify_focus_live',
+        'Focus Timer',
+        channelDescription: 'Live Focus Timer countdown',
+        importance: Importance.low,
+        priority: Priority.low,
+        ongoing: true,
+        onlyAlertOnce: true,
+        silent: true,
+        showWhen: false,
+      );
+      await _plugin.show(
+        focusTimerNotifId,
+        '$phase: $title',
+        'समय शेष: $mins:$secs',
+        const NotificationDetails(android: android),
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> cancelFocusTimer() async {
+    try {
+      await _plugin.cancel(focusTimerNotifId);
+    } catch (_) {}
+  }
 }

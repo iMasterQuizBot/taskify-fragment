@@ -16,7 +16,7 @@ class AppDatabase {
 
     _db = await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -75,6 +75,16 @@ class AppDatabase {
             createdAt TEXT NOT NULL
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS mood_logs (
+            date TEXT PRIMARY KEY,
+            mood TEXT NOT NULL,
+            energy INTEGER NOT NULL,
+            updatedAt TEXT NOT NULL
+          )
+        ''');
+
 
 
         final defaultCats = [
@@ -154,6 +164,16 @@ class AppDatabase {
           try {
             await db.execute("UPDATE ai_messages SET chatDate = substr(createdAt, 1, 10) WHERE chatDate IS NULL OR chatDate = ''");
           } catch (_) {}
+        }
+        if (oldV < 9) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS mood_logs (
+              date TEXT PRIMARY KEY,
+              mood TEXT NOT NULL,
+              energy INTEGER NOT NULL,
+              updatedAt TEXT NOT NULL
+            )
+          ''');
         }
       },
     );
@@ -544,15 +564,19 @@ class AppDatabase {
     final cats = await categories();
     final settings = await db.query('settings');
     final tmps = await getTemplates();
+    final aiMsgs = await db.query('ai_messages', orderBy: 'id ASC');
+    final moods = await db.query('mood_logs', orderBy: 'date DESC');
 
     final backup = {
       'app': 'Taskify',
-      'version': 6,
+      'version': 9,
       'createdAt': DateTime.now().toIso8601String(),
       'tasks': tasks,
       'categories': cats,
       'templates': tmps,
       'settings': settings,
+      'ai_messages': aiMsgs,
+      'mood_logs': moods,
     };
     return const JsonEncoder.withIndent('  ').convert(backup);
   }
@@ -588,6 +612,76 @@ class AppDatabase {
           'createdAt': (src['createdAt'] ?? nowIso).toString(),
           'updatedAt': (src['updatedAt'] ?? nowIso).toString(),
         });
+      }
+
+      final cats = decoded['categories'];
+      if (cats is List) {
+        for (final c in cats) {
+          if (c is! Map || c['name'] == null) continue;
+          await txn.insert(
+            'categories',
+            {'name': c['name'].toString(), 'colorHex': c['colorHex']?.toString() ?? '#2563EB'},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      final tmps = decoded['templates'];
+      if (tmps is List) {
+        for (final tp in tmps) {
+          if (tp is! Map || tp['name'] == null || tp['tasksJson'] == null) continue;
+          await txn.insert(
+            'templates',
+            {'name': tp['name'].toString(), 'tasksJson': tp['tasksJson'].toString()},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      final sets = decoded['settings'];
+      if (sets is List) {
+        for (final s in sets) {
+          if (s is! Map || s['key'] == null) continue;
+          await txn.insert(
+            'settings',
+            {'key': s['key'].toString(), 'value': s['value']?.toString() ?? ''},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+
+      final aiMsgs = decoded['ai_messages'];
+      if (aiMsgs is List) {
+        await txn.delete('ai_messages');
+        for (final m in aiMsgs) {
+          if (m is! Map || m['text'] == null) continue;
+          await txn.insert('ai_messages', {
+            'channel': (m['channel'] ?? 'offline').toString(),
+            'role': (m['role'] ?? 'user').toString(),
+            'text': m['text'].toString(),
+            'imageBase64': m['imageBase64']?.toString(),
+            'deepSeekQuery': m['deepSeekQuery']?.toString(),
+            'chatDate': m['chatDate']?.toString(),
+            'createdAt': (m['createdAt'] ?? nowIso).toString(),
+          });
+        }
+      }
+
+      final moods = decoded['mood_logs'];
+      if (moods is List) {
+        for (final md in moods) {
+          if (md is! Map || md['date'] == null || md['mood'] == null) continue;
+          await txn.insert(
+            'mood_logs',
+            {
+              'date': md['date'].toString(),
+              'mood': md['mood'].toString(),
+              'energy': int.tryParse('${md['energy'] ?? 3}') ?? 3,
+              'updatedAt': (md['updatedAt'] ?? nowIso).toString(),
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
       }
     });
   }
@@ -691,5 +785,96 @@ class AppDatabase {
       return;
     }
     await db.delete('ai_messages', where: 'channel = ?', whereArgs: [channel]);
+  }
+
+  /// सभी तारीख़ों में नाम, कैटेगरी, विवरण या नोट्स से टास्क खोजना (Global Search)
+  Future<List<Map<String, dynamic>>> searchAllTasks(String query) async {
+    final q = '%${query.trim()}%';
+    return db.query(
+      'tasks',
+      where: 'title LIKE ? OR category LIKE ? OR description LIKE ? OR notes LIKE ?',
+      whereArgs: [q, q, q, q],
+      orderBy: 'date DESC, startMinutes ASC',
+      limit: 60,
+    );
+  }
+
+  /// आज के छूटे हुए (Overdue) टास्क को 1-टैप में अगले खाली स्लॉट या कल पर शिफ़्ट करें
+  Future<int> rescheduleOverdueTasks(DateTime date) async {
+    final now = DateTime.now();
+    final isToday = dateKey(date) == dateKey(now);
+    if (!isToday) return 0;
+
+    final currentMins = now.hour * 60 + now.minute;
+    final dayTasks = await getTasks(date);
+    final overdue = dayTasks.where((t) {
+      if (t['status'] != 'pending') return false;
+      final end = (t['endMinutes'] as int?) ?? (t['startMinutes'] as int);
+      return currentMins > end;
+    }).toList();
+
+    if (overdue.isEmpty) return 0;
+
+    // अगले राउंड 30-मिनट स्लॉट से शुरू करें
+    int cursor = ((currentMins + 29) ~/ 30) * 30;
+    int moved = 0;
+
+    for (final t in overdue) {
+      final oldStart = t['startMinutes'] as int;
+      final oldEnd = t['endMinutes'] as int?;
+      final duration = (oldEnd != null && oldEnd > oldStart) ? (oldEnd - oldStart) : 60;
+
+      DateTime targetDate = date;
+      int newStart = cursor;
+      if (newStart + duration > 23 * 60 + 30) {
+        // आज जगह नहीं बची तो कल सुबह 7:00 AM से शिफ़्ट करें
+        targetDate = date.add(const Duration(days: 1));
+        newStart = 420 + (moved * 60);
+        if (newStart > 21 * 60) newStart = 420;
+      } else {
+        cursor = newStart + duration + 15;
+      }
+
+      final id = t['id'] as int;
+      try {
+        await NotificationService.cancel(id);
+      } catch (_) {}
+
+      await db.update(
+        'tasks',
+        {
+          'date': dateKey(targetDate),
+          'startMinutes': newStart,
+          'endMinutes': (newStart + duration) % 1440,
+          'updatedAt': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      if ((t['reminder'] as int) == 1) {
+        await _scheduleTaskNotification(id, t['title'].toString(), targetDate, newStart);
+      }
+      moved++;
+    }
+    return moved;
+  }
+
+  Future<Map<String, dynamic>?> getMoodLog(DateTime date) async {
+    final rows = await db.query('mood_logs', where: 'date = ?', whereArgs: [dateKey(date)], limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  Future<void> setMoodLog(DateTime date, String mood, int energy) async {
+    await db.insert(
+      'mood_logs',
+      {
+        'date': dateKey(date),
+        'mood': mood,
+        'energy': energy,
+        'updatedAt': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 }

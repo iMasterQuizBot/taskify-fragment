@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -234,13 +235,26 @@ class _LiquidFloatingDock extends StatelessWidget {
         margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         height: 66,
         decoration: BoxDecoration(
-          color: const Color(0xEB151A24),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(0.10)),
-          boxShadow: const [
-            BoxShadow(color: Color(0x66000000), blurRadius: 20, offset: Offset(0, 8)),
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(color: AppColors.violet.withOpacity(0.18), blurRadius: 24, spreadRadius: 0.5),
+            const BoxShadow(color: Color(0x77000000), blurRadius: 20, offset: Offset(0, 8)),
           ],
         ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xCC1E2538), Color(0xB3121724)],
+                ),
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: Colors.white.withOpacity(0.18), width: 1.1),
+              ),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final totalSlots = items.length + 1;
@@ -324,6 +338,9 @@ class _LiquidFloatingDock extends StatelessWidget {
               ],
             );
           },
+        ),
+            ),
+          ),
         ),
       ),
     );

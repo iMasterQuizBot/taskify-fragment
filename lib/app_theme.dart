@@ -2,6 +2,7 @@
 // DESIGN SYSTEM & TELEGRAM-STYLE CONFETTI
 // ============================================================
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
 class AppColors {
@@ -204,6 +205,7 @@ class GlassCard extends StatelessWidget {
   final EdgeInsetsGeometry margin;
   final BorderRadius? borderRadius;
   final Color? color;
+  final Color? glowColor;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
@@ -214,26 +216,53 @@ class GlassCard extends StatelessWidget {
     this.margin = const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
     this.borderRadius,
     this.color,
+    this.glowColor,
     this.onTap,
     this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
-    final radius = borderRadius ?? BorderRadius.circular(16);
+    final radius = borderRadius ?? BorderRadius.circular(20);
+    final glow = glowColor ?? AppColors.violet;
 
-    Widget content = Container(
-      decoration: BoxDecoration(
-        color: color ?? const Color(0xFF161B26),
-        borderRadius: radius,
-        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
-        boxShadow: const [
-          BoxShadow(color: Color(0x33000000), blurRadius: 10, offset: Offset(0, 4)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Padding(padding: padding, child: child),
+    Widget content = ClipRRect(
+      borderRadius: radius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: color != null
+                  ? [color!.withOpacity(0.88), color!.withOpacity(0.68)]
+                  : [
+                      const Color(0xCC1E2538),
+                      const Color(0xAA131824),
+                    ],
+            ),
+            borderRadius: radius,
+            border: Border.all(
+              color: Colors.white.withOpacity(0.16),
+              width: 1.05,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: glow.withOpacity(0.12),
+                blurRadius: 18,
+                spreadRadius: 0.5,
+                offset: const Offset(0, 4),
+              ),
+              const BoxShadow(
+                color: Color(0x44000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(padding: padding, child: child),
+        ),
       ),
     );
 
@@ -242,8 +271,8 @@ class GlassCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: radius,
-          splashColor: AppColors.violet.withOpacity(0.15),
-          highlightColor: Colors.white.withOpacity(0.04),
+          splashColor: AppColors.cyan.withOpacity(0.16),
+          highlightColor: Colors.white.withOpacity(0.06),
           onTap: onTap,
           onLongPress: onLongPress,
           child: content,

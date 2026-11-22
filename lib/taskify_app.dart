@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app_database.dart';
@@ -22,6 +23,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
   int notificationLeadTime = 5;
   String refreshRateMode = '120';
   bool isLocked = false;
+  bool bioEnabled = false;
   String savedPin = '';
 
 
@@ -37,6 +39,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
     final savedLead = await widget.db.getSetting('notificationLeadTime');
     final savedRefresh = await widget.db.getSetting('refreshRateMode');
     final pinEnabled = await widget.db.getSetting('pinSecurityEnabled');
+    final bio = await widget.db.getSetting('biometricEnabled');
     final pin = await widget.db.getSetting('appSecurityPin');
 
     if (mounted) {
@@ -45,6 +48,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
         notificationLeadTime = int.tryParse(savedLead ?? '5') ?? 5;
         refreshRateMode = savedRefresh ?? '120';
         savedPin = pin ?? '';
+        bioEnabled = bio == '1';
         isLocked = pinEnabled == '1' && savedPin.isNotEmpty;
       });
 
@@ -227,6 +231,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
       home: isLocked
           ? PinLockScreen(
               expectedPin: savedPin,
+              biometricEnabled: bioEnabled,
               onUnlocked: () {
                 setState(() => isLocked = false);
                 _checkAutoBackup();
@@ -244,9 +249,15 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
 
 class PinLockScreen extends StatefulWidget {
   final String expectedPin;
+  final bool biometricEnabled;
   final VoidCallback onUnlocked;
 
-  const PinLockScreen({super.key, required this.expectedPin, required this.onUnlocked});
+  const PinLockScreen({
+    super.key,
+    required this.expectedPin,
+    this.biometricEnabled = false,
+    required this.onUnlocked,
+  });
 
   @override
   State<PinLockScreen> createState() => _PinLockScreenState();
@@ -254,7 +265,28 @@ class PinLockScreen extends StatefulWidget {
 
 class _PinLockScreenState extends State<PinLockScreen> {
   final TextEditingController pinCtrl = TextEditingController();
+  final LocalAuthentication _auth = LocalAuthentication();
   String errorText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.biometricEnabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    }
+  }
+
+  Future<void> _tryBiometric() async {
+    try {
+      final can = await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
+      if (!can) return;
+      final ok = await _auth.authenticate(
+        localizedReason: 'Taskify अनलॉक करने के लिए फिंगरप्रिंट स्कैन करें',
+        options: const AuthenticationOptions(biometricOnly: true, stickyAuth: true),
+      );
+      if (ok && mounted) widget.onUnlocked();
+    } catch (_) {}
+  }
 
   void verify() {
     if (pinCtrl.text.trim() == widget.expectedPin.trim()) {
@@ -311,6 +343,14 @@ class _PinLockScreenState extends State<PinLockScreen> {
                 style: FilledButton.styleFrom(backgroundColor: AppColors.violet),
                 child: const Text('Unlock'),
               ),
+              if (widget.biometricEnabled) ...[
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: _tryBiometric,
+                  icon: const Icon(Icons.fingerprint_rounded, color: AppColors.cyan, size: 24),
+                  label: const Text('Fingerprint से अनलॉक करें', style: TextStyle(color: AppColors.cyan)),
+                ),
+              ],
             ],
           ),
         ),

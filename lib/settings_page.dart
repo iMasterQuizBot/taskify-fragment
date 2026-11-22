@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 
 import 'app_database.dart';
 import 'app_theme.dart';
@@ -54,6 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String autoBackupDay = 'Sunday';
   bool cloudSyncEnabled = false;
   bool pinEnabled = false;
+  bool bioEnabled = false;
 
   @override
   void initState() {
@@ -78,6 +81,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final autoBD = await widget.db.getSetting('autoBackupDay');
     final cloudS = await widget.db.getSetting('cloudSyncEnabled');
     final pinEn = await widget.db.getSetting('pinSecurityEnabled');
+    final bioEn = await widget.db.getSetting('biometricEnabled');
 
     if (!mounted) return;
 
@@ -97,6 +101,7 @@ class _SettingsPageState extends State<SettingsPage> {
       autoBackupDay = autoBD ?? 'Sunday';
       cloudSyncEnabled = cloudS == '1';
       pinEnabled = pinEn == '1';
+      bioEnabled = bioEn == '1';
     });
   }
 
@@ -378,33 +383,60 @@ class _SettingsPageState extends State<SettingsPage> {
       final done = list.where((e) => e['status'] == 'completed').length;
       final pct = total == 0 ? 0 : ((done / total) * 100).round();
 
-      final buffer = StringBuffer();
-      buffer.writeln('========================================');
-      buffer.writeln('     TASKIFY MONTHLY PERFORMANCE       ');
-      buffer.writeln('========================================');
-      buffer.writeln('Month: ${DateFormat('MMMM yyyy').format(now)}');
-      buffer.writeln('Total Tasks: $total');
-      buffer.writeln('Completed Tasks: $done');
-      buffer.writeln('Monthly Score: $pct%');
-      buffer.writeln('----------------------------------------\n');
-
+      final doc = pw.Document();
+      final monthTitle = DateFormat('MMMM yyyy').format(now);
+      final Map<String, int> catCounts = {};
+      final Map<String, int> catDone = {};
       for (final t in list) {
-        buffer.writeln('${t['date']} | ${t['title']} | ${t['category']} | Status: ${t['status']}');
+        final c = t['category'].toString();
+        catCounts[c] = (catCounts[c] ?? 0) + 1;
+        if (t['status'] == 'completed') catDone[c] = (catDone[c] ?? 0) + 1;
       }
 
-      final chosenFolder = await showDialog<Directory>(
-        context: context,
-        builder: (_) => const NativeStorageExplorerDialog(isFolderPicker: true),
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context ctx) => [
+            pw.Header(
+              level: 0,
+              child: pw.Text('TASKIFY MONTHLY PERFORMANCE REPORT', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            ),
+            pw.Text('Month: $monthTitle   |   Total Tasks: $total   |   Completed: $done   |   Score: $pct%'),
+            pw.SizedBox(height: 14),
+            pw.Text('Category Breakdown', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            pw.TableHelper.fromTextArray(
+              headers: ['Category', 'Completed', 'Total', 'Rate'],
+              data: catCounts.keys.map((c) {
+                final tot = catCounts[c] ?? 0;
+                final dn = catDone[c] ?? 0;
+                final rate = tot == 0 ? '0%' : '${((dn / tot) * 100).round()}%';
+                return [c, '$dn', '$tot', rate];
+              }).toList(),
+            ),
+            pw.SizedBox(height: 16),
+            pw.Text('Task Log', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 6),
+            pw.TableHelper.fromTextArray(
+              headers: ['Date', 'Title', 'Category', 'Status'],
+              data: list.take(120).map((t) => [
+                t['date'].toString(),
+                t['title'].toString(),
+                t['category'].toString(),
+                t['status'].toString(),
+              ]).toList(),
+            ),
+          ],
+        ),
       );
 
-      if (chosenFolder == null) return;
+      final tempDir = await getTemporaryDirectory();
+      final pdfFile = File('${tempDir.path}/Taskify_Monthly_Report_${now.month}_${now.year}.pdf');
+      await pdfFile.writeAsBytes(await doc.save());
 
-      final file = File('${chosenFolder.path}/Taskify_Monthly_Report_${now.month}_${now.year}.txt');
-      await file.writeAsString(buffer.toString());
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Report saved to:\n${file.path}'), duration: const Duration(seconds: 4)),
+      await Share.shareXFiles(
+        [XFile(pdfFile.path, mimeType: 'application/pdf')],
+        subject: 'Taskify Monthly Report - $monthTitle',
       );
     } catch (e) {
       if (!mounted) return;
@@ -967,6 +999,28 @@ class _SettingsPageState extends State<SettingsPage> {
                   await widget.db.setSetting('pinSecurityEnabled', '0');
                   setState(() => pinEnabled = false);
                 }
+              },
+            ),
+          ),
+
+          GlassCard(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: EdgeInsets.zero,
+            child: SwitchListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              secondary: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(color: AppColors.cyan.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+                child: const Icon(Icons.fingerprint_rounded, color: AppColors.cyan, size: 20),
+              ),
+              title: const Text('Fingerprint / Biometric Unlock', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+              subtitle: const Text('PIN स्क्रीन पर फिंगरप्रिंट से अनलॉक करें', style: TextStyle(fontSize: 10.5)),
+              value: bioEnabled,
+              onChanged: (val) async {
+                await widget.db.setSetting('biometricEnabled', val ? '1' : '0');
+                setState(() => bioEnabled = val);
               },
             ),
           ),

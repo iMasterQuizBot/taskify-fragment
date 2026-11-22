@@ -562,6 +562,17 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
                 ),
                 const SizedBox(width: 8),
                 const Expanded(child: Text('फ़ोटो जुड़ी है', style: TextStyle(color: AppColors.textSecondary))),
+                TextButton.icon(
+                  onPressed: _busy
+                      ? null
+                      : () {
+                          _input.text =
+                              'इस टाइमटेबल / शेड्यूल की फ़ोटो को पढ़कर सभी टास्क add_task tool से मेरे कैलेंडर में जोड़ दो।';
+                          _send();
+                        },
+                  icon: const Icon(Icons.calendar_month_rounded, size: 16, color: AppColors.cyan),
+                  label: const Text('Timetable → Tasks', style: TextStyle(fontSize: 11.5, color: AppColors.cyan)),
+                ),
                 IconButton(
                   icon: const Icon(Icons.close_rounded),
                   onPressed: () => setState(() => _pendingImage = null),

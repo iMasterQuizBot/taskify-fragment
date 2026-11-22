@@ -1,14 +1,16 @@
 import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'app_theme.dart';
 import 'helpers.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
+import 'notification_service.dart';
+import 'sound_service.dart';
 
 class FocusTimerDialog extends StatefulWidget {
   final String taskTitle;
@@ -28,6 +30,9 @@ class FocusTimerDialog extends StatefulWidget {
 
 class _FocusTimerDialogState extends State<FocusTimerDialog> {
   bool isClockMode = false;
+  String cycleMode = 'custom'; // 'custom', '25_5', '50_10'
+  bool isBreakPhase = false;
+
   int secondsRemaining = 25 * 60;
   bool isRunning = false;
   File? customAudioFile;
@@ -51,8 +56,11 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
 
   @override
   void dispose() {
-    audioPlayer.stop();
-    audioPlayer.dispose();
+    NotificationService.cancelFocusTimer();
+    try {
+      audioPlayer.stop();
+      audioPlayer.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -66,29 +74,70 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
     }
   }
 
+  void _selectCycle(String mode) {
+    setState(() {
+      cycleMode = mode;
+      isBreakPhase = false;
+      if (mode == '25_5') {
+        secondsRemaining = 25 * 60;
+      } else if (mode == '50_10') {
+        secondsRemaining = 50 * 60;
+      }
+    });
+  }
+
   void toggleTimer() async {
     setState(() => isRunning = !isRunning);
     if (isRunning) {
-      if (customAudioFile != null && await customAudioFile!.exists()) {
-        await audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await audioPlayer.play(DeviceFileSource(customAudioFile!.path));
-      }
+      try {
+        if (customAudioFile != null && await customAudioFile!.exists()) {
+          await audioPlayer.setReleaseMode(ReleaseMode.loop);
+          await audioPlayer.play(DeviceFileSource(customAudioFile!.path));
+        }
+      } catch (_) {}
       _run();
     } else {
-      await audioPlayer.pause();
+      try {
+        await audioPlayer.pause();
+      } catch (_) {}
+      await NotificationService.cancelFocusTimer();
     }
   }
 
   void _run() async {
     while (isRunning && secondsRemaining > 0) {
+      if (secondsRemaining % 5 == 0 || secondsRemaining <= 10) {
+        NotificationService.showOngoingFocusTimer(
+          title: widget.taskTitle,
+          phase: isBreakPhase ? 'Break' : 'Focus',
+          secondsLeft: secondsRemaining,
+        );
+      }
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted || !isRunning) break;
       setState(() => secondsRemaining--);
     }
     if (secondsRemaining == 0 && mounted) {
-      await audioPlayer.stop();
       HapticFeedback.vibrate();
-      setState(() => isRunning = false);
+      SoundService.play('taskCompleted');
+
+      if (cycleMode == '25_5' || cycleMode == '50_10') {
+        final nextIsBreak = !isBreakPhase;
+        final nextMins = cycleMode == '25_5'
+            ? (nextIsBreak ? 5 : 25)
+            : (nextIsBreak ? 10 : 50);
+        setState(() {
+          isBreakPhase = nextIsBreak;
+          secondsRemaining = nextMins * 60;
+        });
+        if (isRunning) _run();
+      } else {
+        try {
+          await audioPlayer.stop();
+        } catch (_) {}
+        await NotificationService.cancelFocusTimer();
+        setState(() => isRunning = false);
+      }
     }
   }
 
@@ -159,6 +208,7 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
       final m = int.tryParse(mCtrl.text.trim()) ?? 0;
       final s = int.tryParse(sCtrl.text.trim()) ?? 0;
       setState(() {
+        cycleMode = 'custom';
         secondsRemaining = (m * 60) + s;
       });
     }
@@ -173,10 +223,19 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
       return AlertDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30),
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        title: Text(
-          widget.taskTitle,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppColors.textPrimary),
+        title: Column(
+          children: [
+            GlowBadge(
+              text: isBreakPhase ? '☕ BREAK TIME' : '🎯 FOCUS SESSION',
+              color: isBreakPhase ? AppColors.emerald : AppColors.cyan,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.taskTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: AppColors.textPrimary),
+            ),
+          ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -187,11 +246,18 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.04),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.cyan.withOpacity(0.3)),
+                border: Border.all(
+                  color: (isBreakPhase ? AppColors.emerald : AppColors.cyan).withOpacity(0.35),
+                ),
               ),
               child: Text(
                 '$mins:$secs',
-                style: const TextStyle(fontSize: 60, fontWeight: FontWeight.w900, color: AppColors.cyan, letterSpacing: -2),
+                style: TextStyle(
+                  fontSize: 60,
+                  fontWeight: FontWeight.w900,
+                  color: isBreakPhase ? AppColors.emerald : AppColors.cyan,
+                  letterSpacing: -2,
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -207,6 +273,7 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
                 OutlinedButton(
                   onPressed: () {
                     setState(() => isRunning = false);
+                    NotificationService.cancelFocusTimer();
                     Navigator.pop(context);
                   },
                   child: const Text('Stop & Exit'),
@@ -232,8 +299,29 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
       ),
       content: SingleChildScrollView(
         child: Column(
-          mainAxisSize: dynamicSize(context),
+          mainAxisSize: MainAxisSize.min,
           children: [
+            Wrap(
+              spacing: 6,
+              children: [
+                ChoiceChip(
+                  label: const Text('Custom', style: TextStyle(fontSize: 11)),
+                  selected: cycleMode == 'custom',
+                  onSelected: (_) => _selectCycle('custom'),
+                ),
+                ChoiceChip(
+                  label: const Text('25 / 5', style: TextStyle(fontSize: 11)),
+                  selected: cycleMode == '25_5',
+                  onSelected: (_) => _selectCycle('25_5'),
+                ),
+                ChoiceChip(
+                  label: const Text('50 / 10', style: TextStyle(fontSize: 11)),
+                  selected: cycleMode == '50_10',
+                  onSelected: (_) => _selectCycle('50_10'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             GestureDetector(
               onTap: editDurationDirectly,
               child: Container(
@@ -328,6 +416,4 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
       ],
     );
   }
-
-  MainAxisSize dynamicSize(BuildContext context) => MainAxisSize.min;
 }

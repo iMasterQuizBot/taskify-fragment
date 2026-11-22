@@ -95,7 +95,9 @@ class RoutinesPageState extends State<RoutinesPage> {
         ),
         actions: [
           Container(
-            margin: const EdgeInsets.only(right: 14),
+            // राइट में margin बढ़ाया — ऊपर टॉप-राइट पर अब हमेशा दिखने वाला
+            // global Settings gear (main_screen.dart) रहता है, उससे टकराना नहीं चाहिए।
+            margin: const EdgeInsets.only(right: 58),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.045),
               shape: BoxShape.circle,

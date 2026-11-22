@@ -7,7 +7,8 @@ import 'package:path/path.dart' as p;
 
 import 'app_theme.dart';
 import 'helpers.dart';
-import 'native_storage_explorer_dialog.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 class FocusTimerDialog extends StatefulWidget {
   final String taskTitle;
@@ -92,17 +93,31 @@ class _FocusTimerDialogState extends State<FocusTimerDialog> {
   }
 
   Future<void> chooseCustomAudio() async {
-    final pickedFile = await showDialog<File>(
-      context: context,
-      builder: (_) => NativeStorageExplorerDialog(
-        isFolderPicker: false,
-        fileExtensions: ['.mp3', '.wav', '.m4a', '.aac', '.ogg'],
-      ),
-    );
-    if (pickedFile != null) {
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus', 'mp4', 'webm'],
+        withData: false,
+      );
+      final pickedPath = res?.files.single.path;
+      if (pickedPath == null) return;
+
+      final base = await getApplicationSupportDirectory();
+      final dir = Directory('${base.path}/focus_sounds');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      final ext = p.extension(pickedPath).isEmpty ? '.audio' : p.extension(pickedPath);
+      final dest = File('${dir.path}/focus_${DateTime.now().millisecondsSinceEpoch}$ext');
+      await File(pickedPath).copy(dest.path);
+
+      if (!mounted) return;
       setState(() {
-        customAudioFile = pickedFile;
+        customAudioFile = dest;
       });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('साउंड चुनने में समस्या आई: $e')),
+      );
     }
   }
 

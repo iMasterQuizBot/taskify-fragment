@@ -4,9 +4,11 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../ai_assistant_screen.dart';
 import '../app_database.dart';
 import '../app_theme.dart';
 import '../offline_ai_engine.dart';
+import '../tts_voice.dart';
 
 class DeepSeekWebScreen extends StatefulWidget {
   final AppDatabase db;
@@ -28,6 +30,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
   late final OfflineAiEngine _engine;
   late final WebViewController _webController;
 
+  final GlobalKey<AiAssistantScreenState> _apiAiKey = GlobalKey<AiAssistantScreenState>();
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -41,16 +44,10 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _engine = OfflineAiEngine(widget.db);
-
-    _messages.add(
-      const _ChatMsg(
-        isUser: false,
-        text: 'नमस्ते! मैं आपका सुपरफास्ट Offline Taskify AI हूँ ⚡\n'
-            'बोलकर या लिखकर टास्क कंट्रोल करें, या बड़े सवालों के लिए ऊपर "DeepSeek Web" टैब पर जाएं।',
-      ),
-    );
+    TtsVoice.apply(_tts, widget.db);
+    _loadOfflineHistory();
 
     _webController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -71,6 +68,36 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       ..loadRequest(Uri.parse('https://chat.deepseek.com'));
   }
 
+  Future<void> _loadOfflineHistory() async {
+    final rows = await widget.db.getAiMessages('offline');
+    if (!mounted) return;
+    if (rows.isEmpty) {
+      setState(() {
+        _messages
+          ..clear()
+          ..add(
+            const _ChatMsg(
+              isUser: false,
+              text: 'नमस्ते! मैं आपका सुपरफास्ट Offline Taskify AI हूँ ⚡\n'
+                  'बोलकर या लिखकर टास्क कंट्रोल करें। आपकी सभी चैट यहाँ सेव रहेंगी।',
+            ),
+          );
+      });
+    } else {
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(rows.map((r) => _ChatMsg(
+                id: r['id'] as int?,
+                isUser: r['role'].toString() == 'user',
+                text: r['text'].toString(),
+                deepSeekQuery: r['deepSeekQuery']?.toString(),
+              )));
+      });
+    }
+    _scrollToBottom();
+  }
+
   @override
   void dispose() {
     _tts.stop();
@@ -81,13 +108,29 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     super.dispose();
   }
 
+  Future<void> _clearActiveTab() async {
+    if (_tabController.index == 0) {
+      await widget.db.clearAiMessages('offline');
+      await _loadOfflineHistory();
+    } else if (_tabController.index == 1) {
+      await _apiAiKey.currentState?.clearChat();
+    } else {
+      await _webController.reload();
+    }
+  }
+
   Future<void> _sendOffline(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
     _inputCtrl.clear();
+    final userId = await widget.db.addAiMessage(
+      channel: 'offline',
+      role: 'user',
+      text: trimmed,
+    );
     setState(() {
-      _messages.add(_ChatMsg(isUser: true, text: trimmed));
+      _messages.add(_ChatMsg(id: userId, isUser: true, text: trimmed));
     });
     _scrollToBottom();
 
@@ -97,10 +140,18 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       widget.onDatabaseChanged?.call();
     }
 
+    final botId = await widget.db.addAiMessage(
+      channel: 'offline',
+      role: 'assistant',
+      text: reply.text,
+      deepSeekQuery: reply.suggestDeepSeek ? reply.deepSeekQuery : null,
+    );
+
     if (!mounted) return;
     setState(() {
       _messages.add(
         _ChatMsg(
+          id: botId,
           isUser: false,
           text: reply.text,
           deepSeekQuery: reply.suggestDeepSeek ? reply.deepSeekQuery : null,
@@ -112,7 +163,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     if (_voiceReply) {
       try {
         await _tts.stop();
-        await _tts.speak(reply.text.replaceAll(RegExp(r'[*#•✅⏳🗑️📊🔥📅⚡🔔🌐👇]'), ''));
+        await _tts.speak(TtsVoice.cleanForSpeech(reply.text));
       } catch (_) {}
     }
   }
@@ -149,7 +200,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
 
   Future<void> _openInDeepSeek(String query) async {
     await Clipboard.setData(ClipboardData(text: query));
-    _tabController.animateTo(1);
+    _tabController.animateTo(2);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -177,7 +228,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       canPop: false,
       onPopInvokedWithResult: (bool didPop, dynamic result) async {
         if (didPop) return;
-        if (_tabController.index == 1 && await _webController.canGoBack()) {
+        if (_tabController.index == 2 && await _webController.canGoBack()) {
           await _webController.goBack();
         } else if (context.mounted) {
           Navigator.of(context).pop();
@@ -198,9 +249,9 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
               },
             ),
             IconButton(
-              tooltip: 'Reload DeepSeek',
-              icon: const Icon(Icons.refresh_rounded),
-              onPressed: () => _webController.reload(),
+              tooltip: 'चैट रिफ्रेश / डिलीट करें',
+              icon: const Icon(Icons.delete_sweep_rounded, color: AppColors.rose),
+              onPressed: _clearActiveTab,
             ),
           ],
           bottom: TabBar(
@@ -210,6 +261,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
             unselectedLabelColor: AppColors.textMuted,
             tabs: const [
               Tab(icon: Icon(Icons.bolt_rounded, size: 18), text: 'Offline AI'),
+              Tab(icon: Icon(Icons.auto_awesome_rounded, size: 18), text: 'API AI'),
               Tab(icon: Icon(Icons.public_rounded, size: 18), text: 'DeepSeek Web'),
             ],
           ),
@@ -219,6 +271,12 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
           physics: const NeverScrollableScrollPhysics(),
           children: [
             _buildOfflineTab(),
+            AiAssistantScreen(
+              key: _apiAiKey,
+              db: widget.db,
+              onChanged: () => widget.onDatabaseChanged?.call(),
+              embedded: true,
+            ),
             _buildDeepSeekTab(),
           ],
         ),
@@ -262,36 +320,45 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
               final msg = _messages[index];
               return Align(
                 alignment: msg.isUser ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 5),
-                  padding: const EdgeInsets.all(12),
-                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
-                  decoration: BoxDecoration(
-                    color: msg.isUser ? AppColors.violet.withOpacity(0.85) : const Color(0xFF1B2230),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.08)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        msg.text,
-                        style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
-                      ),
-                      if (msg.deepSeekQuery != null) ...[
-                        const SizedBox(height: 10),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.cyan,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          ),
-                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                          label: const Text('DeepSeek पर पूछें', style: TextStyle(fontWeight: FontWeight.w700)),
-                          onPressed: () => _openInDeepSeek(msg.deepSeekQuery!),
+                child: GestureDetector(
+                  onLongPress: msg.id == null
+                      ? null
+                      : () async {
+                          await widget.db.deleteAiMessage(msg.id!);
+                          if (!mounted) return;
+                          setState(() => _messages.removeAt(index));
+                        },
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 5),
+                    padding: const EdgeInsets.all(12),
+                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
+                    decoration: BoxDecoration(
+                      color: msg.isUser ? AppColors.violet.withOpacity(0.85) : const Color(0xFF1B2230),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          msg.text,
+                          style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
                         ),
+                        if (msg.deepSeekQuery != null) ...[
+                          const SizedBox(height: 10),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.cyan,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                            label: const Text('DeepSeek पर पूछें', style: TextStyle(fontWeight: FontWeight.w700)),
+                            onPressed: () => _openInDeepSeek(msg.deepSeekQuery!),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               );
@@ -333,7 +400,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
                 ),
                 const SizedBox(width: 6),
                 IconButton(
-                  icon: Icon(Icons.send_rounded, color: AppColors.cyan),
+                  icon: const Icon(Icons.send_rounded, color: AppColors.cyan),
                   onPressed: () => _sendOffline(_inputCtrl.text),
                 ),
               ],
@@ -381,11 +448,13 @@ class _KeepAliveWebViewState extends State<_KeepAliveWebView>
 }
 
 class _ChatMsg {
+  final int? id;
   final bool isUser;
   final String text;
   final String? deepSeekQuery;
 
   const _ChatMsg({
+    this.id,
     required this.isUser,
     required this.text,
     this.deepSeekQuery,

@@ -2,14 +2,18 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import 'ai_service.dart';
 import 'ai_settings_page.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'helpers.dart';
 import 'live_voice_screen.dart';
 import 'speech_text.dart';
 import 'tts_voice.dart';
@@ -47,8 +51,10 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
   final FlutterTts _tts = FlutterTts();
 
   final List<_Msg> _messages = [];
+  DateTime _selectedDate = DateTime.now();
   bool _busy = false;
   bool _listening = false;
+  bool _listeningLive = false;
   bool _speakReplies = true;
   bool _speaking = false;
   Uint8List? _pendingImage;
@@ -56,6 +62,9 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
 
   @override
   bool get wantKeepAlive => widget.embedded;
+
+  String get _selectedDateKey => widget.db.dateKey(_selectedDate);
+  bool get _isToday => DateUtils.isSameDay(_selectedDate, DateTime.now());
 
   @override
   void initState() {
@@ -66,7 +75,7 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
   }
 
   Future<void> _loadSavedMessages() async {
-    final rows = await widget.db.getAiMessages('api');
+    final rows = await widget.db.getAiMessages('api', chatDate: _selectedDateKey);
     if (!mounted) return;
     setState(() {
       _messages
@@ -91,7 +100,14 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
   }
 
   Future<void> clearChat() async {
-    await widget.db.clearAiMessages('api');
+    if (_messages.isEmpty) return;
+    final yes = await confirm(
+      context,
+      'चैट डिलीट करें?',
+      'क्या आप ${_isToday ? "आज" : DateFormat("d MMM yyyy").format(_selectedDate)} की सभी API AI चैट्स हमेशा के लिए हटाना चाहते हैं?',
+    );
+    if (!yes) return;
+    await widget.db.clearAiMessages('api', chatDate: _selectedDateKey);
     _ai.resetChat();
     if (!mounted) return;
     setState(() => _messages.clear());
@@ -112,7 +128,9 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
     _tts.setErrorHandler((_) {
       if (mounted) setState(() => _speaking = false);
     });
-    await TtsVoice.apply(_tts, widget.db);
+    try {
+      await TtsVoice.apply(_tts, widget.db);
+    } catch (_) {}
   }
 
   Future<void> _loadName() async {
@@ -123,8 +141,12 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
 
   @override
   void dispose() {
-    _stt.stop();
-    _tts.stop();
+    try {
+      _stt.stop();
+    } catch (_) {}
+    try {
+      _tts.stop();
+    } catch (_) {}
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -143,45 +165,105 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
   }
 
   Future<void> _stopSpeaking() async {
-    await _tts.stop();
+    try {
+      await _tts.stop();
+    } catch (_) {}
     if (mounted) setState(() => _speaking = false);
   }
 
-  Future<void> _pickImage() async {
-    final file = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      imageQuality: 80,
-    );
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    setState(() => _pendingImage = bytes);
+  Future<void> _speakText(String text) async {
+    try {
+      await _tts.stop();
+      await TtsVoice.apply(_tts, widget.db);
+      await _tts.speak(TtsVoice.cleanForSpeech(text));
+    } catch (_) {}
   }
 
-  Future<void> _toggleListen() async {
-    if (_listening) {
-      await _stt.stop();
-      setState(() => _listening = false);
-      return;
-    }
-    final ok = await _stt.initialize();
-    if (!ok) {
-      _snack('माइक्रोफ़ोन या speech recognition उपलब्ध नहीं है।');
-      return;
-    }
-    setState(() => _listening = true);
-    await _stt.listen(
-      localeId: 'hi_IN',
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
-      onResult: (r) {
-        setState(() => _input.text = r.recognizedWords);
-        if (r.finalResult) {
-          setState(() => _listening = false);
-          _send();
-        }
-      },
+  Future<void> _replayFullConversation() async {
+    if (_messages.isEmpty) return;
+    final combined = _messages
+        .map((m) => '${m.isUser ? "आपने पूछा:" : "उत्तर:"} ${TtsVoice.cleanForSpeech(m.text)}')
+        .join('। ');
+    await _speakText(combined);
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
     );
+    if (picked == null) return;
+    setState(() => _selectedDate = picked);
+    await _loadSavedMessages();
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        imageQuality: 80,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      setState(() => _pendingImage = bytes);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleListen({required bool autoSend}) async {
+    if (_listening) {
+      try {
+        await _stt.stop();
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _listening = false;
+          _listeningLive = false;
+        });
+      }
+      return;
+    }
+    try {
+      final ok = await _stt.initialize();
+      if (!ok) {
+        _snack('माइक्रोफ़ोन या speech recognition उपलब्ध नहीं है।');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _listening = true;
+        _listeningLive = autoSend;
+      });
+      await _stt.listen(
+        localeId: 'hi_IN',
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 3),
+        onResult: (r) {
+          if (!mounted) return;
+          setState(() => _input.text = r.recognizedWords);
+          if (r.finalResult) {
+            final shouldSend = _listeningLive;
+            setState(() {
+              _listening = false;
+              _listeningLive = false;
+            });
+            if (shouldSend && r.recognizedWords.trim().isNotEmpty) {
+              _send();
+            }
+          }
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _listening = false;
+          _listeningLive = false;
+        });
+      }
+    }
   }
 
   void _snack(String msg) {
@@ -197,13 +279,17 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
     final image = _pendingImage;
     final userDisplay = text.isEmpty ? 'सवाल (फ़ोटो)' : text;
     final imgB64 = image != null ? base64Encode(image) : null;
+    final dateKey = _selectedDateKey;
+
     final userMsgId = await widget.db.addAiMessage(
       channel: 'api',
       role: 'user',
       text: userDisplay,
       imageBase64: imgB64,
+      chatDate: dateKey,
     );
 
+    if (!mounted) return;
     setState(() {
       _messages.add(_Msg(userDisplay, true, id: userMsgId, image: image));
       _busy = true;
@@ -219,11 +305,12 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
         channel: 'api',
         role: 'assistant',
         text: reply,
+        chatDate: dateKey,
       );
       if (!mounted) return;
       setState(() => _messages.add(_Msg(reply, false, id: botMsgId)));
       if (_speakReplies) {
-        await _tts.speak(TtsVoice.cleanForSpeech(reply));
+        await _speakText(reply);
       }
     } catch (e) {
       final errText = e.toString().replaceFirst('Exception: ', '');
@@ -231,6 +318,7 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
         channel: 'api',
         role: 'assistant',
         text: errText,
+        chatDate: dateKey,
       );
       if (!mounted) return;
       setState(() => _messages.add(_Msg(errText, false, id: errId)));
@@ -247,6 +335,136 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
         builder: (_) => LiveVoiceScreen(db: widget.db, onChanged: widget.onChanged),
       ),
     ).then((_) => _loadSavedMessages());
+  }
+
+  void _showMessageActions(_Msg m, int index) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF151A24),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.volume_up_rounded, color: AppColors.cyan),
+              title: const Text('आवाज़ में सुनें / दोहराएँ'),
+              subtitle: const Text('Taskify AI इसे बोलकर सुनाएगा'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _speakText(m.text);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.record_voice_over_rounded, color: AppColors.emerald),
+              title: const Text('पूरी बातचीत सुनें'),
+              subtitle: const Text('इस तारीख़ के सभी सवाल-जवाब दोहराएँ'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _replayFullConversation();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded, color: AppColors.violet),
+              title: const Text('कॉपी करें (Copy)'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Clipboard.setData(ClipboardData(text: m.text));
+                _snack('टेक्स्ट कॉपी हो गया।');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_rounded, color: AppColors.amber),
+              title: const Text('शेयर करें (Share)'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Share.share(m.text);
+              },
+            ),
+            if (m.id != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: AppColors.rose),
+                title: const Text('यह संदेश डिलीट करें', style: TextStyle(color: AppColors.rose)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final yes = await confirm(context, 'संदेश डिलीट करें?', 'क्या आप यह संदेश हटाना चाहते हैं?');
+                  if (!yes) return;
+                  await widget.db.deleteAiMessage(m.id!);
+                  if (!mounted) return;
+                  setState(() => _messages.removeAt(index));
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateStrip() {
+    final label = _isToday
+        ? 'आज (${DateFormat('d MMM').format(_selectedDate)})'
+        : DateFormat('EEE, d MMM yyyy').format(_selectedDate);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.07)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.chevron_left_rounded, size: 20),
+            onPressed: () {
+              setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 1)));
+              _loadSavedMessages();
+            },
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: _pickDate,
+              borderRadius: BorderRadius.circular(10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.calendar_today_rounded, size: 14, color: AppColors.cyan),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: _isToday ? Colors.white24 : Colors.white,
+            ),
+            onPressed: _isToday
+                ? null
+                : () {
+                    setState(() => _selectedDate = _selectedDate.add(const Duration(days: 1)));
+                    _loadSavedMessages();
+                  },
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildBody() {
@@ -301,16 +519,19 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
               ],
             ),
           ),
+        _buildDateStrip(),
         Expanded(
           child: _messages.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(28),
                     child: Text(
-                      'मुझसे लिखकर या बोलकर बात करें।\n'
-                      '"कल शाम 6 बजे जिम जोड़ो", "आज के टास्क दिखाओ",\n'
-                      'या सवाल की फ़ोटो भेजें।\n\n'
-                      'आपकी सारी बातचीत यहाँ सेव रहेगी जब तक आप डिलीट न करें।',
+                      _isToday
+                          ? 'मुझसे लिखकर या बोलकर बात करें।\n'
+                            '"कल शाम 6 बजे जिम जोड़ो", "आज के टास्क दिखाओ",\n'
+                            'या सवाल की फ़ोटो भेजें।\n\n'
+                            'किसी भी संदेश पर Long Press करके सुनें, कॉपी या शेयर करें।'
+                          : '${DateFormat("d MMM yyyy").format(_selectedDate)} को कोई बातचीत सेव नहीं है।',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: AppColors.textSecondary, height: 1.5),
                     ),
@@ -366,13 +587,54 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: 'बोलें',
-                icon: Icon(
-                  _listening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                  color: _listening ? AppColors.rose : null,
+              Tooltip(
+                message: 'Live बोलें (अपने आप Send होगा)',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: _busy ? null : () => _toggleListen(autoSend: true),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: (_listening && _listeningLive)
+                          ? AppColors.rose.withOpacity(0.22)
+                          : AppColors.cyan.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: (_listening && _listeningLive)
+                            ? AppColors.rose
+                            : AppColors.cyan.withOpacity(0.45),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.mic_rounded,
+                          size: 16,
+                          color: (_listening && _listeningLive) ? AppColors.rose : AppColors.cyan,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Live',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            color: (_listening && _listeningLive) ? AppColors.rose : AppColors.cyan,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                onPressed: _busy ? null : _toggleListen,
+              ),
+              IconButton(
+                tooltip: 'बोलकर लिखें (Manual Send)',
+                icon: Icon(
+                  (_listening && !_listeningLive) ? Icons.mic_rounded : Icons.mic_none_rounded,
+                  color: (_listening && !_listeningLive) ? AppColors.rose : null,
+                ),
+                onPressed: _busy ? null : () => _toggleListen(autoSend: false),
               ),
               IconButton(
                 tooltip: 'भेजें',
@@ -438,13 +700,7 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
     return Align(
       alignment: m.isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-        onLongPress: m.id == null
-            ? null
-            : () async {
-                await widget.db.deleteAiMessage(m.id!);
-                if (!mounted) return;
-                setState(() => _messages.removeAt(index));
-              },
+        onLongPress: () => _showMessageActions(m, index),
         child: Container(
           constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.84),
           margin: const EdgeInsets.symmetric(vertical: 5),
@@ -466,7 +722,7 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
                   ),
                 ),
               m.isUser
-                  ? SelectableText(m.text, style: const TextStyle(height: 1.4))
+                  ? Text(m.text, style: const TextStyle(height: 1.4))
                   : SolutionText(m.text, style: const TextStyle(height: 1.5, fontSize: 15)),
             ],
           ),

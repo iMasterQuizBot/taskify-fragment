@@ -16,7 +16,7 @@ class AppDatabase {
 
     _db = await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -71,6 +71,7 @@ class AppDatabase {
             text TEXT NOT NULL,
             imageBase64 TEXT,
             deepSeekQuery TEXT,
+            chatDate TEXT,
             createdAt TEXT NOT NULL
           )
         ''');
@@ -141,9 +142,18 @@ class AppDatabase {
               text TEXT NOT NULL,
               imageBase64 TEXT,
               deepSeekQuery TEXT,
+              chatDate TEXT,
               createdAt TEXT NOT NULL
             )
           ''');
+        }
+        if (oldV < 8) {
+          try {
+            await db.execute('ALTER TABLE ai_messages ADD COLUMN chatDate TEXT');
+          } catch (_) {}
+          try {
+            await db.execute("UPDATE ai_messages SET chatDate = substr(createdAt, 1, 10) WHERE chatDate IS NULL OR chatDate = ''");
+          } catch (_) {}
         }
       },
     );
@@ -554,12 +564,30 @@ class AppDatabase {
     final tasks = decoded['tasks'];
     if (tasks is! List) throw Exception('Invalid tasks array.');
 
+    final nowIso = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
       await txn.delete('tasks');
       for (final raw in tasks) {
-        final task = Map<String, dynamic>.from(raw);
-        task.remove('id');
-        await txn.insert('tasks', task);
+        if (raw is! Map) continue;
+        final src = Map<String, dynamic>.from(raw);
+        await txn.insert('tasks', {
+          'date': (src['date'] ?? dateKey(DateTime.now())).toString(),
+          'title': (src['title'] ?? 'Task').toString(),
+          'description': src['description']?.toString() ?? '',
+          'startMinutes': int.tryParse('${src['startMinutes'] ?? 360}') ?? 360,
+          'endMinutes': src['endMinutes'] == null ? null : int.tryParse('${src['endMinutes']}'),
+          'category': (src['category'] ?? 'Other').toString(),
+          'priority': int.tryParse('${src['priority'] ?? 1}') ?? 1,
+          'status': (src['status'] ?? 'pending').toString(),
+          'repeatType': (src['repeatType'] ?? 'once').toString(),
+          'repeatDays': src['repeatDays']?.toString() ?? '',
+          'notes': src['notes']?.toString() ?? '',
+          'reminder': (src['reminder'] == 1 || src['reminder'] == true) ? 1 : 0,
+          'subtasks': src['subtasks']?.toString() ?? '',
+          'attachmentPath': src['attachmentPath']?.toString() ?? '',
+          'createdAt': (src['createdAt'] ?? nowIso).toString(),
+          'updatedAt': (src['updatedAt'] ?? nowIso).toString(),
+        });
       }
     });
   }
@@ -604,7 +632,15 @@ class AppDatabase {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getAiMessages(String channel) async {
+  Future<List<Map<String, dynamic>>> getAiMessages(String channel, {String? chatDate}) async {
+    if (chatDate != null && chatDate.isNotEmpty) {
+      return db.query(
+        'ai_messages',
+        where: "channel = ? AND (chatDate = ? OR (chatDate IS NULL AND substr(createdAt, 1, 10) = ?))",
+        whereArgs: [channel, chatDate, chatDate],
+        orderBy: 'id ASC',
+      );
+    }
     return db.query(
       'ai_messages',
       where: 'channel = ?',
@@ -613,20 +649,31 @@ class AppDatabase {
     );
   }
 
+  Future<List<String>> getAiChatDates(String channel) async {
+    final rows = await db.rawQuery(
+      "SELECT DISTINCT COALESCE(NULLIF(chatDate, ''), substr(createdAt, 1, 10)) AS d FROM ai_messages WHERE channel = ? ORDER BY d DESC",
+      [channel],
+    );
+    return rows.map((r) => r['d']?.toString() ?? '').where((d) => d.isNotEmpty).toList();
+  }
+
   Future<int> addAiMessage({
     required String channel,
     required String role,
     required String text,
     String? imageBase64,
     String? deepSeekQuery,
+    String? chatDate,
   }) async {
+    final now = DateTime.now();
     return db.insert('ai_messages', {
       'channel': channel,
       'role': role,
       'text': text,
       'imageBase64': imageBase64,
       'deepSeekQuery': deepSeekQuery,
-      'createdAt': DateTime.now().toIso8601String(),
+      'chatDate': chatDate ?? dateKey(now),
+      'createdAt': now.toIso8601String(),
     });
   }
 
@@ -634,7 +681,15 @@ class AppDatabase {
     await db.delete('ai_messages', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> clearAiMessages(String channel) async {
+  Future<void> clearAiMessages(String channel, {String? chatDate}) async {
+    if (chatDate != null && chatDate.isNotEmpty) {
+      await db.delete(
+        'ai_messages',
+        where: "channel = ? AND (chatDate = ? OR (chatDate IS NULL AND substr(createdAt, 1, 10) = ?))",
+        whereArgs: [channel, chatDate, chatDate],
+      );
+      return;
+    }
     await db.delete('ai_messages', where: 'channel = ?', whereArgs: [channel]);
   }
 }

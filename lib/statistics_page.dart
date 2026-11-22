@@ -404,6 +404,7 @@ class StatisticsPageState extends State<StatisticsPage> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: GridView.count(
+                padding: EdgeInsets.zero,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 crossAxisCount: 2,

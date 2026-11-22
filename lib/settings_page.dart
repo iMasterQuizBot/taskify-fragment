@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -330,23 +332,35 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> importBackupFile() async {
     try {
-      final selectedFile = await showDialog<File>(
-        context: context,
-        builder: (_) => const NativeStorageExplorerDialog(
-          isFolderPicker: false,
-          fileExtensions: ['.json'],
-        ),
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: true,
       );
-
-      if (selectedFile != null) {
-        final content = await selectedFile.readAsString();
-        await widget.db.importJson(content);
+      if (res == null || res.files.isEmpty) return;
+      final picked = res.files.single;
+      if (!picked.name.toLowerCase().endsWith('.json')) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Backup restored successfully!')),
+          const SnackBar(content: Text('कृपया केवल .json बैकअप फ़ाइल चुनें।')),
         );
-        widget.onChanged();
+        return;
       }
+
+      String content;
+      if (picked.bytes != null) {
+        content = utf8.decode(picked.bytes!);
+      } else if (picked.path != null) {
+        content = await File(picked.path!).readAsString();
+      } else {
+        throw Exception('फ़ाइल पढ़ी नहीं जा सकी।');
+      }
+
+      await widget.db.importJson(content);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Backup restored successfully!')),
+      );
+      widget.onChanged();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore failed: $e')));

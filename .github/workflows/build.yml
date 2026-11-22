@@ -38,7 +38,7 @@ jobs:
           PKG_PATH=$(echo "$APP_PKG" | tr '.' '/')
           mkdir -p "android/app/src/main/kotlin/$PKG_PATH"
           sed "s/__PKG__/$APP_PKG/g" ci/MainActivity.kt.template > "android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
-          sed "s/__PKG__/$APP_PKG/g" ci/TaskifyWidgetProvider.kt.template > "android/app/src/main/kotlin/$PKG_PATH/TaskifyWidgetProvider.kt"
+          sed "s/__PKG__/$APP_PKG/g" ci/TaskifyAllWidgets.kt.template > "android/app/src/main/kotlin/$PKG_PATH/TaskifyAllWidgets.kt"
 
       - name: Force compileSdk 36 for all plugins
         run: |
@@ -169,22 +169,30 @@ jobs:
                           a = ET.SubElement(inf, "action")
                           a.set(attr("name"), act)
 
-          w_recv_name = f"{os.environ['APP_PKG']}.TaskifyWidgetProvider"
-          has_w_recv = any(
-              r.get(attr("name")) in (w_recv_name, ".TaskifyWidgetProvider")
-              for r in app.findall("receiver")
-          )
-          if not has_w_recv:
-              wrec = ET.SubElement(app, "receiver")
-              wrec.set(attr("name"), w_recv_name)
-              wrec.set(attr("label"), "Taskify Glass")
-              wrec.set(attr("exported"), "true")
-              winf = ET.SubElement(wrec, "intent-filter")
-              wact = ET.SubElement(winf, "action")
-              wact.set(attr("name"), "android.appwidget.action.APPWIDGET_UPDATE")
-              wmeta = ET.SubElement(wrec, "meta-data")
-              wmeta.set(attr("name"), "android.appwidget.provider")
-              wmeta.set(attr("resource"), "@xml/taskify_widget_info")
+          widget_labels = [
+              "01 Progress Ring", "02 Fire Streak", "03 Today 3 Tasks", "04 Next Up", "05 Focus 25m",
+              "06 Study Today", "07 Weekly Score", "08 Monthly Score", "09 Category Stats", "10 Quick Add Pill",
+              "11 AI Voice Orb", "12 Ask Offline AI", "13 Mood & Energy", "14 Mini Calendar", "15 Overdue Alert",
+              "16 Spaced Revision", "17 Daily Briefing", "18 Habit Ring", "19 Daily Quote", "20 Streak Shield",
+              "21 Mini Streak 1x1", "22 Mini % 1x1", "23 Mini Study 1x1", "24 Mini Due 1x1", "25 Wide Progress",
+              "26 Wide Next Task", "27 Agenda 5 Tasks", "28 Study Hub 4x3", "29 Done vs Pending", "30 Deep Work",
+              "31 Pomodoro 25/5", "32 Pomodoro 50/10", "33 Night Review", "34 Exam Target", "35 Priority Strip",
+              "36 API AI Pill", "37 DeepSeek Pill", "38 Mega Glass 4x4", "39 Trophy Today", "40 Mood + Date Pill",
+          ]
+          existing_names = {r.get(attr("name")) for r in app.findall("receiver")}
+          for idx, wlabel in enumerate(widget_labels, 1):
+              cls_name = f"{os.environ['APP_PKG']}.TaskifyWidget{idx:02d}"
+              if cls_name not in existing_names:
+                  wrec = ET.SubElement(app, "receiver")
+                  wrec.set(attr("name"), cls_name)
+                  wrec.set(attr("label"), f"Taskify {wlabel}")
+                  wrec.set(attr("exported"), "true")
+                  winf = ET.SubElement(wrec, "intent-filter")
+                  wact = ET.SubElement(winf, "action")
+                  wact.set(attr("name"), "android.appwidget.action.APPWIDGET_UPDATE")
+                  wmeta = ET.SubElement(wrec, "meta-data")
+                  wmeta.set(attr("name"), "android.appwidget.provider")
+                  wmeta.set(attr("resource"), f"@xml/tg_info_{idx:02d}")
 
           svc_name = f"{os.environ['APP_PKG']}.TaskifyVoiceService"
           has_svc = any(
@@ -226,9 +234,9 @@ jobs:
           fi
 
           mkdir -p android/app/src/main/res/layout android/app/src/main/res/drawable android/app/src/main/res/xml
-          cp ci/taskify_glass_widget.xml android/app/src/main/res/layout/taskify_glass_widget.xml
-          cp ci/taskify_glass_bg.xml android/app/src/main/res/drawable/taskify_glass_bg.xml
-          cp ci/taskify_widget_info.xml android/app/src/main/res/xml/taskify_widget_info.xml
+          cp ci/res_widgets/layout/*.xml android/app/src/main/res/layout/
+          cp ci/res_widgets/drawable/*.xml android/app/src/main/res/drawable/
+          cp ci/res_widgets/xml/*.xml android/app/src/main/res/xml/
           cat << 'EOF' > android/app/src/main/res/xml/taskify_sound_paths.xml
           <?xml version="1.0" encoding="utf-8"?>
           <paths xmlns:android="http://schemas.android.com/apk/res/android">

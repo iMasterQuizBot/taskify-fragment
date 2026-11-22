@@ -74,27 +74,6 @@ jobs:
           print("Gradle configured successfully!")
           PYEOF
 
-      - name: Notification receivers & custom sound files
-        run: |
-          mkdir -p android/app/src/main/res/raw
-          if [ -d "assets/sounds" ]; then
-            for f in assets/sounds/*; do
-              [ -f "$f" ] || continue
-              base=$(basename "$f" | tr '[:upper:]' '[:lower:]' | tr '-' '_')
-              cp "$f" "android/app/src/main/res/raw/$base"
-            done
-          fi
-
-          mkdir -p android/app/src/main/res/xml
-          cat << 'EOF' > android/app/src/main/res/xml/taskify_sound_paths.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths xmlns:android="http://schemas.android.com/apk/res/android">
-              <files-path name="taskify_files" path="." />
-              <cache-path name="taskify_cache" path="." />
-              <external-files-path name="taskify_ext" path="." />
-          </paths>
-          EOF
-
       - name: Patch & Validate AndroidManifest.xml (Safe XML)
         run: |
           python3 - << 'PYEOF'
@@ -113,6 +92,11 @@ jobs:
           def attr(name):
               return f"{{{ANDROID_NS}}}{name}"
 
+          # FIX: "flutter create" डिफ़ॉल्ट रूप से project-name (routine_app) को ही
+          # app का display label बना देता है, इसलिए हर नए build में ऐप का नाम
+          # बदला हुआ दिखता था। अब हमेशा "Taskify" ही label रहेगा।
+          app.set(attr("label"), "Taskify")
+
           permissions = [
               "android.permission.INTERNET",
               "android.permission.RECORD_AUDIO",
@@ -121,6 +105,12 @@ jobs:
               "android.permission.RECEIVE_BOOT_COMPLETED",
               "android.permission.VIBRATE",
               "android.permission.WAKE_LOCK",
+              # FIX: इनके बिना DeepSeek Web (WebView) के अंदर "फ़ोटो/फ़ाइल अपलोड" बटन
+              # दबाने पर सिस्टम का file-chooser/कैमरा खुलता ही नहीं (चुपचाप कैंसल हो
+              # जाता है), इसलिए अपलोड कभी काम नहीं करता था।
+              "android.permission.CAMERA",
+              "android.permission.READ_MEDIA_IMAGES",
+              "android.permission.READ_EXTERNAL_STORAGE",
           ]
           existing_perms = {
               el.get(attr("name")) for el in root.findall("uses-permission")
@@ -178,6 +168,47 @@ jobs:
         run: |
           flutter clean
           flutter pub get
+
+      # FIX: यह step पहले "flutter clean" से पहले था। चाहे flutter clean सामान्यतः
+      # res/raw को न छुए, फिर भी notification sound crash (PlatformException:
+      # invalid_sound / "resource sound_chime could not be found") से पूरी तरह बचने
+      # के लिए अब raw sound files सबसे आख़िर में, clean होने के बाद, copy होती हैं —
+      # ताकि कोई भी clean/regeneration step इन्हें कभी न हटा सके।
+      - name: Notification receivers & custom sound files
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          if [ -d "assets/sounds" ]; then
+            for f in assets/sounds/*; do
+              [ -f "$f" ] || continue
+              base=$(basename "$f" | tr '[:upper:]' '[:lower:]' | tr '-' '_')
+              cp "$f" "android/app/src/main/res/raw/$base"
+            done
+          fi
+
+          mkdir -p android/app/src/main/res/xml
+          cat << 'EOF' > android/app/src/main/res/xml/taskify_sound_paths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <files-path name="taskify_files" path="." />
+              <cache-path name="taskify_cache" path="." />
+              <external-files-path name="taskify_ext" path="." />
+          </paths>
+          EOF
+
+      - name: Verify raw sound resources exist (fail fast instead of silent runtime crash)
+        run: |
+          python3 - << 'PYEOF'
+          import os, sys
+          RAW = "android/app/src/main/res/raw"
+          required = ["sound_chime", "sound_bell", "sound_beep", "sound_alarm"]
+          present = {os.path.splitext(f)[0] for f in os.listdir(RAW)} if os.path.isdir(RAW) else set()
+          missing = [r for r in required if r not in present]
+          if missing:
+              print(f"ERROR: ये raw sound resources नहीं मिले: {missing}")
+              print(f"मौजूद फ़ाइलें: {sorted(present)}")
+              sys.exit(1)
+          print(f"OK: सभी ज़रूरी raw sounds मौजूद हैं -> {sorted(present)}")
+          PYEOF
 
       - name: Setup Icons
         run: |

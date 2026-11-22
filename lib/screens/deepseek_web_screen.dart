@@ -1,8 +1,11 @@
 import 'dart:io';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -10,6 +13,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../ai_assistant_screen.dart';
 import '../app_database.dart';
 import '../app_theme.dart';
+import '../helpers.dart';
 import '../offline_ai_engine.dart';
 import '../tts_voice.dart';
 
@@ -40,17 +44,22 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
   final FlutterTts _tts = FlutterTts();
 
   final List<_ChatMsg> _messages = [];
+  DateTime _selectedDate = DateTime.now();
   bool _isListening = false;
   bool _isListeningLive = false;
   bool _voiceReply = true;
+  bool _speaking = false;
   int _webProgress = 0;
+
+  String get _selectedDateKey => widget.db.dateKey(_selectedDate);
+  bool get _isToday => DateUtils.isSameDay(_selectedDate, DateTime.now());
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _engine = OfflineAiEngine(widget.db);
-    TtsVoice.apply(_tts, widget.db);
+    _setupTts();
     _loadOfflineHistory();
 
     _webController = WebViewController()
@@ -71,38 +80,60 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       )
       ..loadRequest(Uri.parse('https://chat.deepseek.com'));
 
-    if (Platform.isAndroid && _webController.platform is AndroidWebViewController) {
-      final androidCtrl = _webController.platform as AndroidWebViewController;
-      androidCtrl.setOnShowFileSelector((FileSelectorParams params) async {
-        try {
-          final res = await FilePicker.platform.pickFiles(
-            allowMultiple: params.mode == FileSelectorMode.openMultiple,
-            withData: false,
-          );
-          if (res == null) return <String>[];
-          return res.files
-              .where((f) => f.path != null)
-              .map((f) => Uri.file(f.path!).toString())
-              .toList();
-        } catch (_) {
-          return <String>[];
-        }
-      });
-    }
+    try {
+      if (Platform.isAndroid && _webController.platform is AndroidWebViewController) {
+        final androidCtrl = _webController.platform as AndroidWebViewController;
+        androidCtrl.setOnShowFileSelector((FileSelectorParams params) async {
+          try {
+            final res = await FilePicker.platform.pickFiles(
+              allowMultiple: params.mode == FileSelectorMode.openMultiple,
+              withData: false,
+            );
+            if (res == null) return <String>[];
+            return res.files
+                .where((f) => f.path != null)
+                .map((f) => Uri.file(f.path!).toString())
+                .toList();
+          } catch (_) {
+            return <String>[];
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _setupTts() async {
+    _tts.setStartHandler(() {
+      if (mounted) setState(() => _speaking = true);
+    });
+    _tts.setCompletionHandler(() {
+      if (mounted) setState(() => _speaking = false);
+    });
+    _tts.setCancelHandler(() {
+      if (mounted) setState(() => _speaking = false);
+    });
+    _tts.setErrorHandler((_) {
+      if (mounted) setState(() => _speaking = false);
+    });
+    try {
+      await TtsVoice.apply(_tts, widget.db);
+    } catch (_) {}
   }
 
   Future<void> _loadOfflineHistory() async {
-    final rows = await widget.db.getAiMessages('offline');
+    final rows = await widget.db.getAiMessages('offline', chatDate: _selectedDateKey);
     if (!mounted) return;
     if (rows.isEmpty) {
       setState(() {
         _messages
           ..clear()
           ..add(
-            const _ChatMsg(
+            _ChatMsg(
               isUser: false,
-              text: 'नमस्ते! मैं आपका सुपरफास्ट Offline Taskify AI हूँ ⚡\n'
-                  'बोलकर या लिखकर टास्क कंट्रोल करें। आपकी सभी चैट यहाँ सेव रहेंगी।',
+              text: _isToday
+                  ? 'नमस्ते! मैं आपका सुपरफास्ट Offline Taskify AI हूँ ⚡\n'
+                    'बोलकर या लिखकर टास्क कंट्रोल करें। किसी भी संदेश पर Long Press करके सुनें, कॉपी या शेयर करें।'
+                  : '${DateFormat("d MMM yyyy").format(_selectedDate)} को कोई Offline AI चैट सेव नहीं है।',
             ),
           );
       });
@@ -123,8 +154,12 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
 
   @override
   void dispose() {
-    _tts.stop();
-    _speech.stop();
+    try {
+      _tts.stop();
+    } catch (_) {}
+    try {
+      _speech.stop();
+    } catch (_) {}
     _tabController.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
@@ -133,7 +168,15 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
 
   Future<void> _clearActiveTab() async {
     if (_tabController.index == 0) {
-      await widget.db.clearAiMessages('offline');
+      final hasRealMsgs = _messages.any((m) => m.id != null);
+      if (!hasRealMsgs) return;
+      final yes = await confirm(
+        context,
+        'चैट डिलीट करें?',
+        'क्या आप ${_isToday ? "आज" : DateFormat("d MMM yyyy").format(_selectedDate)} की Offline AI चैट्स हमेशा के लिए हटाना चाहते हैं?',
+      );
+      if (!yes) return;
+      await widget.db.clearAiMessages('offline', chatDate: _selectedDateKey);
       await _loadOfflineHistory();
     } else if (_tabController.index == 1) {
       await _apiAiKey.currentState?.clearChat();
@@ -142,17 +185,50 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     }
   }
 
+  Future<void> _speakText(String text) async {
+    try {
+      await _tts.stop();
+      await TtsVoice.apply(_tts, widget.db);
+      await _tts.speak(TtsVoice.cleanForSpeech(text));
+    } catch (_) {}
+  }
+
+  Future<void> _replayFullOfflineConversation() async {
+    final realMsgs = _messages.where((m) => m.id != null).toList();
+    if (realMsgs.isEmpty) return;
+    final combined = realMsgs
+        .map((m) => '${m.isUser ? "आपने कहा:" : "जवाब:"} ${TtsVoice.cleanForSpeech(m.text)}')
+        .join('। ');
+    await _speakText(combined);
+  }
+
+  Future<void> _pickOfflineDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null) return;
+    setState(() => _selectedDate = picked);
+    await _loadOfflineHistory();
+  }
+
   Future<void> _sendOffline(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
     _inputCtrl.clear();
+    final dateKey = _selectedDateKey;
     final userId = await widget.db.addAiMessage(
       channel: 'offline',
       role: 'user',
       text: trimmed,
+      chatDate: dateKey,
     );
+    if (!mounted) return;
     setState(() {
+      _messages.removeWhere((m) => m.id == null);
       _messages.add(_ChatMsg(id: userId, isUser: true, text: trimmed));
     });
     _scrollToBottom();
@@ -168,6 +244,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       role: 'assistant',
       text: reply.text,
       deepSeekQuery: reply.suggestDeepSeek ? reply.deepSeekQuery : null,
+      chatDate: dateKey,
     );
 
     if (!mounted) return;
@@ -184,53 +261,64 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     _scrollToBottom();
 
     if (_voiceReply) {
-      try {
-        await _tts.stop();
-        await _tts.speak(TtsVoice.cleanForSpeech(reply.text));
-      } catch (_) {}
+      await _speakText(reply.text);
     }
   }
 
   Future<void> _toggleMic({required bool autoSend}) async {
     if (_isListening) {
-      await _speech.stop();
-      setState(() {
-        _isListening = false;
-        _isListeningLive = false;
-      });
+      try {
+        await _speech.stop();
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _isListeningLive = false;
+        });
+      }
       return;
     }
 
-    final ok = await _speech.initialize();
-    if (!ok) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('माइक की अनुमति नहीं मिली या स्पीच उपलब्ध नहीं है।')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isListening = true;
-      _isListeningLive = autoSend;
-    });
-    await _speech.listen(
-      localeId: 'hi_IN',
-      onResult: (result) {
+    try {
+      final ok = await _speech.initialize();
+      if (!ok) {
         if (!mounted) return;
-        setState(() => _inputCtrl.text = result.recognizedWords);
-        if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
-          final shouldSend = _isListeningLive;
-          setState(() {
-            _isListening = false;
-            _isListeningLive = false;
-          });
-          if (shouldSend) {
-            _sendOffline(result.recognizedWords);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('माइक की अनुमति नहीं मिली या स्पीच उपलब्ध नहीं है।')),
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isListening = true;
+        _isListeningLive = autoSend;
+      });
+      await _speech.listen(
+        localeId: 'hi_IN',
+        onResult: (result) {
+          if (!mounted) return;
+          setState(() => _inputCtrl.text = result.recognizedWords);
+          if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
+            final shouldSend = _isListeningLive;
+            setState(() {
+              _isListening = false;
+              _isListeningLive = false;
+            });
+            if (shouldSend) {
+              _sendOffline(result.recognizedWords);
+            }
           }
-        }
-      },
-    );
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _isListeningLive = false;
+        });
+      }
+    }
   }
 
   Future<void> _openInDeepSeek(String query) async {
@@ -241,6 +329,82 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
       const SnackBar(
         content: Text('सवाल कॉपी हो गया है! DeepSeek के बॉक्स में Paste करें।'),
         duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showOfflineMsgActions(_ChatMsg msg, int index) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF151A24),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.volume_up_rounded, color: AppColors.cyan),
+              title: const Text('आवाज़ में सुनें / दोहराएँ'),
+              subtitle: const Text('Taskify AI इसे बोलकर सुनाएगा'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _speakText(msg.text);
+              },
+            ),
+            if (_messages.any((m) => m.id != null))
+              ListTile(
+                leading: const Icon(Icons.record_voice_over_rounded, color: AppColors.emerald),
+                title: const Text('पूरी बातचीत सुनें'),
+                subtitle: const Text('इस तारीख़ की पूरी बातचीत दोहराएँ'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _replayFullOfflineConversation();
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded, color: AppColors.violet),
+              title: const Text('कॉपी करें (Copy)'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Clipboard.setData(ClipboardData(text: msg.text));
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('टेक्स्ट कॉपी हो गया।')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_rounded, color: AppColors.amber),
+              title: const Text('शेयर करें (Share)'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Share.share(msg.text);
+              },
+            ),
+            if (msg.id != null)
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: AppColors.rose),
+                title: const Text('यह संदेश डिलीट करें', style: TextStyle(color: AppColors.rose)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final yes = await confirm(context, 'संदेश डिलीट करें?', 'क्या आप यह संदेश हटाना चाहते हैं?');
+                  if (!yes) return;
+                  await widget.db.deleteAiMessage(msg.id!);
+                  if (!mounted) return;
+                  setState(() => _messages.removeAt(index));
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
@@ -275,14 +439,24 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
           backgroundColor: const Color(0xFF151A24),
           title: const Text('Taskify AI Hub', style: TextStyle(fontWeight: FontWeight.w700)),
           actions: [
-            IconButton(
-              tooltip: _voiceReply ? 'Voice Reply ON' : 'Voice Reply OFF',
-              icon: Icon(_voiceReply ? Icons.volume_up_rounded : Icons.volume_off_rounded),
-              onPressed: () {
-                setState(() => _voiceReply = !_voiceReply);
-                if (!_voiceReply) _tts.stop();
-              },
-            ),
+            if (_speaking)
+              IconButton(
+                tooltip: 'बोलना रोकें',
+                icon: const Icon(Icons.stop_circle_rounded, color: AppColors.rose),
+                onPressed: () async {
+                  await _tts.stop();
+                  if (mounted) setState(() => _speaking = false);
+                },
+              )
+            else
+              IconButton(
+                tooltip: _voiceReply ? 'Voice Reply ON' : 'Voice Reply OFF',
+                icon: Icon(_voiceReply ? Icons.volume_up_rounded : Icons.volume_off_rounded),
+                onPressed: () {
+                  setState(() => _voiceReply = !_voiceReply);
+                  if (!_voiceReply) _tts.stop();
+                },
+              ),
             IconButton(
               tooltip: 'चैट रिफ्रेश / डिलीट करें',
               icon: const Icon(Icons.delete_sweep_rounded, color: AppColors.rose),
@@ -319,6 +493,64 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     );
   }
 
+  Widget _buildOfflineDateStrip() {
+    final label = _isToday
+        ? 'आज (${DateFormat('d MMM').format(_selectedDate)})'
+        : DateFormat('EEE, d MMM yyyy').format(_selectedDate);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.07)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.chevron_left_rounded, size: 20),
+            onPressed: () {
+              setState(() => _selectedDate = _selectedDate.subtract(const Duration(days: 1)));
+              _loadOfflineHistory();
+            },
+          ),
+          Expanded(
+            child: InkWell(
+              onTap: _pickOfflineDate,
+              borderRadius: BorderRadius.circular(10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.calendar_today_rounded, size: 14, color: AppColors.cyan),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: _isToday ? Colors.white24 : Colors.white,
+            ),
+            onPressed: _isToday
+                ? null
+                : () {
+                    setState(() => _selectedDate = _selectedDate.add(const Duration(days: 1)));
+                    _loadOfflineHistory();
+                  },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOfflineTab() {
     final quickChips = [
       'आज के टास्क दिखाओ',
@@ -329,9 +561,10 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
 
     return Column(
       children: [
+        _buildOfflineDateStrip(),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Row(
             children: quickChips.map((chip) {
               return Padding(
@@ -356,13 +589,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
               return Align(
                 alignment: msg.isUser ? Alignment.centerRight : Alignment.centerLeft,
                 child: GestureDetector(
-                  onLongPress: msg.id == null
-                      ? null
-                      : () async {
-                          await widget.db.deleteAiMessage(msg.id!);
-                          if (!mounted) return;
-                          setState(() => _messages.removeAt(index));
-                        },
+                  onLongPress: () => _showOfflineMsgActions(msg, index),
                   child: Container(
                     margin: const EdgeInsets.symmetric(vertical: 5),
                     padding: const EdgeInsets.all(12),
@@ -407,13 +634,32 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
             color: const Color(0xFF151A24),
             child: Row(
               children: [
+                Expanded(
+                  child: TextField(
+                    controller: _inputCtrl,
+                    style: const TextStyle(color: Colors.white),
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: _sendOffline,
+                    decoration: InputDecoration(
+                      hintText: _isListening ? 'सुन रहा हूँ...' : 'कमांड लिखें या माइक दबाएं...',
+                      hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                      filled: true,
+                      fillColor: const Color(0xFF1E2636),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
                 Tooltip(
                   message: 'Live बोलें (अपने आप Send होगा)',
                   child: InkWell(
                     borderRadius: BorderRadius.circular(999),
                     onTap: () => _toggleMic(autoSend: true),
                     child: Container(
-                      margin: const EdgeInsets.only(right: 4),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       decoration: BoxDecoration(
                         color: (_isListening && _isListeningLive)
@@ -456,26 +702,6 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
                   ),
                   onPressed: () => _toggleMic(autoSend: false),
                 ),
-                Expanded(
-                  child: TextField(
-                    controller: _inputCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: _sendOffline,
-                    decoration: InputDecoration(
-                      hintText: _isListening ? 'सुन रहा हूँ...' : 'कमांड लिखें या माइक दबाएं...',
-                      hintStyle: TextStyle(color: AppColors.textMuted, fontSize: 13),
-                      filled: true,
-                      fillColor: const Color(0xFF1E2636),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
                 IconButton(
                   icon: const Icon(Icons.send_rounded, color: AppColors.cyan),
                   onPressed: () => _sendOffline(_inputCtrl.text),

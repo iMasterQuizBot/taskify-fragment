@@ -77,6 +77,21 @@ class LiveVoiceService {
             },
           },
         },
+        // FIX: पहले यह config बिल्कुल नहीं भेजा जाता था, इसलिए Gemini की डिफ़ॉल्ट
+        // (धीमी/ढीली) VAD settings लगती थीं — जिसकी वजह से (1) बीच में बोलने पर
+        // आधी-अधूरी आवाज़ से AI "कन्फ्यूज़" होकर गलत जवाब देता था, और (2) बोलना
+        // बंद करने के बाद जवाब आने में काफ़ी देर लगती थी। अब: ज़्यादा sensitivity
+        // से interrupt तुरंत और साफ़ पकड़ा जाता है, और कम silence-duration से
+        // जवाब बहुत जल्दी शुरू होता है — बातचीत Perplexity जैसी फ़ास्ट लगेगी।
+        'realtimeInputConfig': {
+          'automaticActivityDetection': {
+            'disabled': false,
+            'startOfSpeechSensitivity': 'START_SENSITIVITY_HIGH',
+            'endOfSpeechSensitivity': 'END_SENSITIVITY_HIGH',
+            'prefixPaddingMs': 20,
+            'silenceDurationMs': 150,
+          },
+        },
         'systemInstruction': {
           'parts': [
             {

@@ -14,6 +14,7 @@ import 'app_theme.dart';
 import 'package:share_plus/share_plus.dart';
 import 'helpers.dart';
 import 'notification_service.dart';
+import 'permission_setup_screen.dart';
 import 'native_storage_explorer_dialog.dart';
 import 'ai_settings_page.dart';
 import 'sound_settings_page.dart';
@@ -823,6 +824,21 @@ class _SettingsPageState extends State<SettingsPage> {
             title: 'Test Notification',
             subtitle: 'Abhi ek test notification bhejein',
             onTap: testNotification,
+          ),
+          _settingsTile(
+            icon: Icons.security_rounded,
+            color: AppColors.emerald,
+            title: 'All App Permissions Hub',
+            subtitle: 'सभी अनुमतियाँ (Mic, Camera, Files, Alarms, Battery) एक जगह से दें',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PermissionSetupScreen(
+                  db: widget.db,
+                  onDone: () => Navigator.pop(context),
+                ),
+              ),
+            ),
           ),
           _settingsTile(
             icon: Icons.verified_user_rounded,

@@ -1,12 +1,12 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import 'ai_service.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
 import 'calendar_page.dart';
+import 'permission_setup_screen.dart';
 import 'routines_page.dart';
 import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
@@ -49,16 +49,25 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     pageController = PageController(initialPage: 0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _askNotificationOnce();
+      _checkFirstTimePermissions();
       AiService.warmUp(widget.db);
     });
   }
 
-  Future<void> _askNotificationOnce() async {
-    final status = await Permission.notification.status;
-    if (status.isDenied) {
-      await Permission.notification.request();
-    }
+  Future<void> _checkFirstTimePermissions() async {
+    final done = await widget.db.getSetting('permissionsSetupDone');
+    if (done == '1' || !mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PermissionSetupScreen(
+          db: widget.db,
+          onDone: () {
+            if (mounted) Navigator.pop(context);
+          },
+        ),
+      ),
+    );
   }
 
   @override

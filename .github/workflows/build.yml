@@ -169,6 +169,23 @@ jobs:
                           a = ET.SubElement(inf, "action")
                           a.set(attr("name"), act)
 
+          w_recv_name = f"{os.environ['APP_PKG']}.TaskifyWidgetProvider"
+          has_w_recv = any(
+              r.get(attr("name")) in (w_recv_name, ".TaskifyWidgetProvider")
+              for r in app.findall("receiver")
+          )
+          if not has_w_recv:
+              wrec = ET.SubElement(app, "receiver")
+              wrec.set(attr("name"), w_recv_name)
+              wrec.set(attr("label"), "Taskify Glass")
+              wrec.set(attr("exported"), "true")
+              winf = ET.SubElement(wrec, "intent-filter")
+              wact = ET.SubElement(winf, "action")
+              wact.set(attr("name"), "android.appwidget.action.APPWIDGET_UPDATE")
+              wmeta = ET.SubElement(wrec, "meta-data")
+              wmeta.set(attr("name"), "android.appwidget.provider")
+              wmeta.set(attr("resource"), "@xml/taskify_widget_info")
+
           svc_name = f"{os.environ['APP_PKG']}.TaskifyVoiceService"
           has_svc = any(
               s.get(attr("name")) in (svc_name, ".TaskifyVoiceService")

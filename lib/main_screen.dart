@@ -9,6 +9,7 @@ import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
 import 'statistics_page.dart';
 import 'today_page.dart';
+import 'widgets/ai_orb_icon.dart';
 
 class MainScreen extends StatefulWidget {
   final AppDatabase db;
@@ -113,6 +114,24 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  // अब Settings किसी tab में नहीं, बल्कि हर tab के ऊपर, टॉप-राइट में एक पक्का
+  // (persistent) gear आइकन है — सभी 4 tabs (Today/Calendar/Stats/Routines) में
+  // हमेशा वहीं दिखेगा। टैप करते ही सीधे Settings खुल जाता है।
+  void _openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SettingsPage(
+          db: widget.db,
+          appTitle: widget.appTitle,
+          onThemeChanged: widget.onThemeChanged,
+          onAppSettingsChanged: widget.onAppSettingsChanged,
+          onChanged: globalRefresh,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -145,13 +164,6 @@ class _MainScreenState extends State<MainScreen> {
         db: widget.db,
         onChanged: globalRefresh,
       ),
-      SettingsPage(
-        db: widget.db,
-        appTitle: widget.appTitle,
-        onThemeChanged: widget.onThemeChanged,
-        onAppSettingsChanged: widget.onAppSettingsChanged,
-        onChanged: globalRefresh,
-      ),
     ];
 
     return Scaffold(
@@ -166,6 +178,12 @@ class _MainScreenState extends State<MainScreen> {
             physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             children: pages,
           ),
+          // --- Persistent Settings gear: हर tab पर टॉप-राइट, सबसे ऊपर ---
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 14,
+            right: 8,
+            child: _GlobalSettingsButton(onTap: _openSettings),
+          ),
         ],
       ),
       bottomNavigationBar: _LiquidFloatingDock(
@@ -173,6 +191,37 @@ class _MainScreenState extends State<MainScreen> {
         selectedIndex: currentIndex,
         onChanged: (i) => pageController.animateToPage(i, duration: const Duration(milliseconds: 320), curve: Curves.easeOutCubic),
         onOpenAI: _openDeepSeek,
+      ),
+    );
+  }
+}
+
+/// हर पेज पर एक जैसा दिखने वाला, टॉप-राइट पर टिका Settings बटन।
+class _GlobalSettingsButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _GlobalSettingsButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xEB151A24),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            boxShadow: const [
+              BoxShadow(color: Color(0x55000000), blurRadius: 10, offset: Offset(0, 4)),
+            ],
+          ),
+          child: const Icon(Icons.settings_rounded, size: 20, color: Colors.white),
+        ),
       ),
     );
   }
@@ -238,7 +287,6 @@ class _LiquidFloatingDock extends StatelessWidget {
       (Icons.calendar_month_rounded, 'Calendar'),
       (Icons.insights_rounded, 'Stats'),
       (Icons.all_inclusive_rounded, 'Routines'),
-      (Icons.settings_rounded, 'Settings'),
     ];
 
     return SafeArea(
@@ -318,7 +366,7 @@ class _LiquidFloatingDock extends StatelessWidget {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.auto_awesome_rounded, size: 20, color: AppColors.cyan),
+                            const AiOrbIcon(size: 17),
                             const SizedBox(height: 2),
                             Text(
                               'AI',

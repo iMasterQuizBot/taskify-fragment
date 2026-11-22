@@ -170,12 +170,18 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
     if (_tabController.index == 0) {
       final hasRealMsgs = _messages.any((m) => m.id != null);
       if (!hasRealMsgs) return;
-      final yes = await confirm(
+      final first = await confirm(
         context,
         'चैट डिलीट करें?',
-        'क्या आप ${_isToday ? "आज" : DateFormat("d MMM yyyy").format(_selectedDate)} की Offline AI चैट्स हमेशा के लिए हटाना चाहते हैं?',
+        'क्या आप ${_isToday ? "आज" : DateFormat("d MMM yyyy").format(_selectedDate)} की सभी चैट डिलीट करना चाहते हैं?',
       );
-      if (!yes) return;
+      if (!first || !mounted) return;
+      final second = await confirm(
+        context,
+        'पक्का डिलीट करें?',
+        'यह कार्रवाई वापस नहीं होगी। क्या आप पूरी तरह से निश्चित हैं?',
+      );
+      if (!second) return;
       await widget.db.clearAiMessages('offline', chatDate: _selectedDateKey);
       await _loadOfflineHistory();
     } else if (_tabController.index == 1) {
@@ -561,6 +567,28 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
 
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(
+            children: [
+              const Text(
+                'Offline Taskify AI',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: AppColors.cyan),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.rose,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                ),
+                onPressed: _messages.any((m) => m.id != null) ? _clearActiveTab : null,
+                icon: const Icon(Icons.delete_sweep_rounded, size: 18),
+                label: const Text('चैट डिलीट करें', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
+        ),
         _buildOfflineDateStrip(),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,

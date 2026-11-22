@@ -12,10 +12,10 @@ import 'widgets/ai_orb_icon.dart';
 
 enum _VoiceMode { offline, api }
 
-/// Perplexity-स्टाइल Live Voice AI स्क्रीन:
-/// - ऊपर Offline AI और API AI में क्लिक करके स्विच करें
-/// - बीच में Perplexity जैसा एनिमेटेड गोला (Orb)
-/// - मोबाइल का Home बटन दबाने पर भी Foreground Service के साथ बैकग्राउंड में चलता रहता है
+/// Perplexity-स्टाइल Push-to-Talk Live Voice AI स्क्रीन:
+/// - गोले को दबाकर रखें (Hold) -> तभी सुनेगा (बीच में रुकेगा नहीं और AI की आवाज़ नहीं पकड़ेगा)
+/// - गोला छोड़ें (Release) -> तब AI सोचकर पूरा जवाब बोलेगा
+/// - Offline AI और API AI दोनों में असली टास्क क्रिएट/एडिट/डिलीट होते हैं
 class LiveVoiceScreen extends StatefulWidget {
   final AppDatabase db;
   final VoidCallback? onChanged;
@@ -33,24 +33,29 @@ class LiveVoiceScreen extends StatefulWidget {
 class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
   static const MethodChannel _bgChannel = MethodChannel('taskify/background');
 
-  late final LiveVoiceService _apiSvc = LiveVoiceService(db: widget.db, onState: _onApiState);
+  late final LiveVoiceService _apiSvc = LiveVoiceService(
+    db: widget.db,
+    onState: _onApiState,
+    onDatabaseChanged: widget.onChanged,
+  );
   late final OfflineAiEngine _offlineEngine = OfflineAiEngine(widget.db);
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
 
   _VoiceMode _mode = _VoiceMode.offline;
-  String _state = 'idle'; // connecting, listening, thinking, speaking, idle
-  bool _muted = false;
+  String _state = 'idle'; // idle, connecting, listening, thinking, speaking
+  bool _isHolding = false;
   bool _closed = false;
-  bool _offlineActive = false;
+  bool _sttReady = false;
   double _micLevel = 0.0;
-  String _statusLabel = 'बोलने के लिए तैयार…';
+  String _lastRecognized = '';
+  String _statusLabel = 'बोलने के लिए गोले को दबाकर रखें';
 
   @override
   void initState() {
     super.initState();
     _startForegroundService();
-    _startOfflineMode();
+    _initOffline();
   }
 
   Future<void> _startForegroundService() async {
@@ -65,24 +70,39 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     } catch (_) {}
   }
 
+  Future<void> _initOffline() async {
+    try {
+      await TtsVoice.apply(_tts, widget.db);
+      await _tts.awaitSpeakCompletion(true);
+      _sttReady = await _stt.initialize();
+    } catch (_) {}
+    if (!mounted || _closed || _mode != _VoiceMode.offline) return;
+    setState(() {
+      _state = 'idle';
+      _statusLabel = _sttReady
+          ? 'बोलने के लिए गोले को दबाकर रखें'
+          : 'माइक की अनुमति दें, फिर गोले को दबाकर बोलें';
+    });
+  }
+
   Future<void> _switchMode(_VoiceMode next) async {
     if (_mode == next || _closed) return;
+    _isHolding = false;
     await _stopCurrentMode();
     if (!mounted || _closed) return;
     setState(() {
       _mode = next;
-      _muted = false;
       _micLevel = 0.0;
+      _state = 'idle';
     });
     if (next == _VoiceMode.offline) {
-      await _startOfflineMode();
+      await _initOffline();
     } else {
       await _startApiMode();
     }
   }
 
   Future<void> _stopCurrentMode() async {
-    _offlineActive = false;
     try {
       await _stt.stop();
     } catch (_) {}
@@ -94,94 +114,6 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     } catch (_) {}
   }
 
-  Future<void> _startOfflineMode() async {
-    setState(() {
-      _state = 'connecting';
-      _statusLabel = 'Offline Voice AI शुरू हो रहा है…';
-    });
-
-    final ok = await _stt.initialize(
-      onError: (_) {
-        if (_offlineActive && _mode == _VoiceMode.offline && !_muted && _state == 'listening') {
-          Future.delayed(const Duration(milliseconds: 400), _listenOfflineAgain);
-        }
-      },
-    );
-    if (!mounted || _closed || _mode != _VoiceMode.offline) return;
-    if (!ok) {
-      setState(() {
-        _state = 'idle';
-        _statusLabel = 'माइक या स्पीच रिकग्निशन उपलब्ध नहीं है।';
-      });
-      return;
-    }
-
-    await TtsVoice.apply(_tts, widget.db);
-    await _tts.awaitSpeakCompletion(true);
-    _offlineActive = true;
-    await _listenOfflineAgain();
-  }
-
-  Future<void> _listenOfflineAgain() async {
-    if (!_offlineActive || _closed || _mode != _VoiceMode.offline || _muted || !mounted) return;
-    setState(() {
-      _state = 'listening';
-      _statusLabel = 'Offline AI सुन रहा है…';
-    });
-    await _stt.listen(
-      localeId: 'hi_IN',
-      listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(seconds: 2),
-      onSoundLevelChange: (level) {
-        if (mounted && _mode == _VoiceMode.offline) {
-          setState(() => _micLevel = (level.clamp(0, 12) / 12).toDouble());
-        }
-      },
-      onResult: (r) {
-        if (!r.finalResult || _mode != _VoiceMode.offline || !_offlineActive) return;
-        final words = r.recognizedWords.trim();
-        if (words.isEmpty) {
-          _listenOfflineAgain();
-          return;
-        }
-        _handleOfflineUtterance(words);
-      },
-    );
-  }
-
-  Future<void> _handleOfflineUtterance(String words) async {
-    await _stt.stop();
-    if (!_offlineActive || _closed || _mode != _VoiceMode.offline) return;
-
-    setState(() {
-      _state = 'thinking';
-      _micLevel = 0.0;
-      _statusLabel = 'सोच रहा हूँ…';
-    });
-
-    await widget.db.addAiMessage(channel: 'offline', role: 'user', text: words);
-    final reply = await _offlineEngine.process(words);
-    if (reply.dbChanged) {
-      widget.onChanged?.call();
-    }
-    await widget.db.addAiMessage(
-      channel: 'offline',
-      role: 'assistant',
-      text: reply.text,
-      deepSeekQuery: reply.suggestDeepSeek ? reply.deepSeekQuery : null,
-    );
-
-    if (!_offlineActive || _closed || _mode != _VoiceMode.offline || !mounted) return;
-    setState(() {
-      _state = 'speaking';
-      _statusLabel = 'बोल रहा हूँ… (रोकने के लिए गोले पर टैप करें)';
-    });
-    await _tts.speak(TtsVoice.cleanForSpeech(reply.text));
-    if (_offlineActive && _mode == _VoiceMode.offline && !_muted && mounted) {
-      await _listenOfflineAgain();
-    }
-  }
-
   Future<void> _startApiMode() async {
     setState(() {
       _state = 'connecting';
@@ -189,6 +121,11 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     });
     try {
       await _apiSvc.start();
+      if (!mounted || _closed || _mode != _VoiceMode.api) return;
+      setState(() {
+        _state = 'idle';
+        _statusLabel = 'बोलने के लिए गोले को दबाकर रखें';
+      });
     } catch (e) {
       if (!mounted || _closed || _mode != _VoiceMode.api) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
@@ -215,54 +152,152 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     setState(() {
       _state = s;
       _statusLabel = switch (s) {
-        'listening' => 'API Live AI सुन रहा है…',
-        'speaking' => 'API Live AI बोल रहा है… (टैप करके रोकें)',
+        'listening' => 'सुन रहा हूँ… (छोड़ने पर जवाब मिलेगा)',
+        'speaking' => 'API Live AI बोल रहा है…',
         'connecting' => 'API Live AI से जुड़ रहा है…',
-        _ => 'तैयार…',
+        _ => 'बोलने के लिए गोले को दबाकर रखें',
       };
     });
   }
 
-  Future<void> _toggleMute() async {
-    final nextMuted = !_muted;
-    setState(() => _muted = nextMuted);
+  /// गोला दबाने पर (Hold Start): AI को चुप कराकर सिर्फ़ यूज़र की आवाज़ सुनें
+  Future<void> _onHoldStart() async {
+    if (_closed || _isHolding) return;
+    _isHolding = true;
+    _lastRecognized = '';
+
     if (_mode == _VoiceMode.api) {
-      _apiSvc.setMuted(nextMuted);
-    } else {
-      if (nextMuted) {
-        await _stt.stop();
-        if (mounted) {
-          setState(() {
-            _state = 'idle';
-            _statusLabel = 'माइक म्यूट है';
-          });
-        }
-      } else {
-        await _listenOfflineAgain();
+      await _apiSvc.interrupt();
+      _apiSvc.setMuted(false);
+      if (mounted) {
+        setState(() {
+          _state = 'listening';
+          _statusLabel = 'सुन रहा हूँ… (बोलकर छोड़ें)';
+        });
       }
+      return;
     }
+
+    // Offline mode Push-to-Talk
+    try {
+      await _tts.stop();
+    } catch (_) {}
+    if (!_sttReady) {
+      _sttReady = await _stt.initialize();
+    }
+    if (!_sttReady) {
+      _isHolding = false;
+      if (mounted) {
+        setState(() {
+          _state = 'idle';
+          _statusLabel = 'माइक या स्पीच उपलब्ध नहीं है।';
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _state = 'listening';
+        _statusLabel = 'सुन रहा हूँ… (बोलकर छोड़ें)';
+      });
+    }
+
+    await _stt.listen(
+      localeId: 'hi_IN',
+      listenFor: const Duration(minutes: 2),
+      pauseFor: const Duration(minutes: 2),
+      onSoundLevelChange: (level) {
+        if (mounted && _isHolding && _mode == _VoiceMode.offline) {
+          setState(() => _micLevel = (level.clamp(0, 12) / 12).toDouble());
+        }
+      },
+      onResult: (r) {
+        if (r.recognizedWords.trim().isNotEmpty) {
+          _lastRecognized = r.recognizedWords.trim();
+        }
+      },
+    );
   }
 
-  Future<void> _interruptOrTapOrb() async {
+  /// गोला छोड़ने पर (Hold End): माइक बंद करें और अब जवाब बोलें
+  Future<void> _onHoldEnd() async {
+    if (!_isHolding || _closed) return;
+    _isHolding = false;
+
     if (_mode == _VoiceMode.api) {
-      if (_state == 'speaking') {
-        await _apiSvc.interrupt();
-      } else if (_state == 'idle') {
-        await _startApiMode();
+      _apiSvc.endUserTurn();
+      if (mounted) {
+        setState(() {
+          _state = 'thinking';
+          _micLevel = 0.0;
+          _statusLabel = 'सोच रहा हूँ…';
+        });
       }
-    } else {
-      if (_state == 'speaking') {
-        await _tts.stop();
-        if (_offlineActive && !_muted) await _listenOfflineAgain();
-      } else if (_state == 'idle' && !_muted) {
-        await _startOfflineMode();
-      }
+      return;
+    }
+
+    try {
+      await _stt.stop();
+    } catch (_) {}
+    // थोड़ा सा इंतज़ार ताकि अंतिम शब्द result में आ जाएँ
+    await Future.delayed(const Duration(milliseconds: 220));
+    if (!mounted || _closed || _mode != _VoiceMode.offline) return;
+
+    final words = _lastRecognized.trim();
+    if (words.isEmpty) {
+      setState(() {
+        _state = 'idle';
+        _micLevel = 0.0;
+        _statusLabel = 'कोई आवाज़ नहीं सुनी — फिर से दबाकर बोलें';
+      });
+      return;
+    }
+
+    await _handleOfflineUtterance(words);
+  }
+
+  Future<void> _handleOfflineUtterance(String words) async {
+    setState(() {
+      _state = 'thinking';
+      _micLevel = 0.0;
+      _statusLabel = 'सोच रहा हूँ…';
+    });
+
+    await widget.db.addAiMessage(channel: 'offline', role: 'user', text: words);
+    final reply = await _offlineEngine.process(words);
+    if (reply.dbChanged) {
+      widget.onChanged?.call();
+    }
+    await widget.db.addAiMessage(
+      channel: 'offline',
+      role: 'assistant',
+      text: reply.text,
+      deepSeekQuery: reply.suggestDeepSeek ? reply.deepSeekQuery : null,
+    );
+
+    if (!mounted || _closed || _mode != _VoiceMode.offline) return;
+    setState(() {
+      _state = 'speaking';
+      _statusLabel = 'बोल रहा हूँ… (नया सवाल पूछने के लिए गोला दबाएँ)';
+    });
+    try {
+      await TtsVoice.apply(_tts, widget.db);
+      await _tts.speak(TtsVoice.cleanForSpeech(reply.text));
+    } catch (_) {}
+
+    if (mounted && !_closed && !_isHolding && _mode == _VoiceMode.offline) {
+      setState(() {
+        _state = 'idle';
+        _statusLabel = 'बोलने के लिए गोले को दबाकर रखें';
+      });
     }
   }
 
   Future<void> _close() async {
     if (_closed) return;
     _closed = true;
+    _isHolding = false;
     await _stopCurrentMode();
     await _apiSvc.dispose();
     await _stopForegroundService();
@@ -286,9 +321,13 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
   void dispose() {
     if (!_closed) {
       _closed = true;
-      _offlineActive = false;
-      _stt.stop();
-      _tts.stop();
+      _isHolding = false;
+      try {
+        _stt.stop();
+      } catch (_) {}
+      try {
+        _tts.stop();
+      } catch (_) {}
       _apiSvc.dispose();
       _stopForegroundService();
     }
@@ -342,15 +381,19 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
                   ),
                 ),
               ),
-              // बीच में Perplexity-स्टाइल एनिमेटेड Orb
+              // बीच में Push-to-Talk Perplexity-स्टाइल एनिमेटेड Orb
               Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    GestureDetector(
-                      onTap: _interruptOrTapOrb,
+                    Listener(
+                      onPointerDown: (_) => _onHoldStart(),
+                      onPointerUp: (_) => _onHoldEnd(),
+                      onPointerCancel: (_) => _onHoldEnd(),
                       child: AnimatedScale(
-                        scale: 1.0 + (_state == 'listening' ? _micLevel * 0.16 : 0.0),
+                        scale: _isHolding
+                            ? (1.12 + _micLevel * 0.14)
+                            : 1.0,
                         duration: const Duration(milliseconds: 140),
                         child: AiOrbIcon(
                           size: 132,
@@ -364,31 +407,35 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
                       child: Text(
                         _statusLabel,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
+                        style: TextStyle(
+                          color: _isHolding ? AppColors.cyan : AppColors.textSecondary,
                           fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: _isHolding ? FontWeight.w800 : FontWeight.w600,
                         ),
                       ),
                     ),
                   ],
                 ),
               ),
-              // नीचे Mute और Close बटन
+              // नीचे Close बटन
               Positioned(
                 bottom: 36,
                 left: 0,
                 right: 0,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _circleButton(
-                      icon: _muted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                      onTap: _toggleMute,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: _close,
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.1),
+                        border: Border.all(color: Colors.white.withOpacity(0.2)),
+                      ),
+                      child: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
                     ),
-                    const SizedBox(width: 26),
-                    _circleButton(icon: Icons.close_rounded, onTap: _close),
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -428,22 +475,6 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _circleButton({required IconData icon, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white.withOpacity(0.1),
-          border: Border.all(color: Colors.white.withOpacity(0.2)),
-        ),
-        child: Icon(icon, color: Colors.white, size: 28),
       ),
     );
   }

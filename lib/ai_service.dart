@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'app_database.dart';
+import 'offline_ai_engine.dart';
 
 /// Gemini API. Key यूज़र अपने फ़ोन में डालता है (flutter_secure_storage में, सुरक्षित)।
 /// कोई बैकएंड नहीं: ऐप सीधे Google के API से बात करता है।
@@ -99,6 +100,34 @@ class AiService {
             },
           },
         },
+        {
+          'name': 'edit_task',
+          'description': 'मौजूदा टास्क का नाम, समय या कैटेगरी बदलता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'title': {'type': 'STRING', 'description': 'पुराने टास्क का नाम'},
+              'new_title': {'type': 'STRING', 'description': 'नया नाम (वैकल्पिक)'},
+              'date': {'type': 'STRING', 'description': 'YYYY-MM-DD (वैकल्पिक)'},
+              'start_time': {'type': 'STRING', 'description': 'नया समय HH:MM (24 घंटे, वैकल्पिक)'},
+              'end_time': {'type': 'STRING', 'description': 'नया खत्म समय HH:MM (वैकल्पिक)'},
+              'category': {'type': 'STRING', 'description': 'नई कैटेगरी (वैकल्पिक)'},
+            },
+            'required': ['title'],
+          },
+        },
+        {
+          'name': 'complete_task',
+          'description': 'किसी टास्क को पूरा (completed) मार्क करता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'title': {'type': 'STRING', 'description': 'टास्क का नाम'},
+              'date': {'type': 'STRING', 'description': 'YYYY-MM-DD (वैकल्पिक)'},
+            },
+            'required': ['title'],
+          },
+        },
       ],
     },
   ];
@@ -152,6 +181,40 @@ class AiService {
         },
       },
     },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'edit_task',
+        'description': 'मौजूदा टास्क का नाम, समय या कैटेगरी बदलता है।',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'title': {'type': 'string', 'description': 'पुराने टास्क का नाम'},
+            'new_title': {'type': 'string', 'description': 'नया नाम (वैकल्पिक)'},
+            'date': {'type': 'string', 'description': 'YYYY-MM-DD (वैकल्पिक)'},
+            'start_time': {'type': 'string', 'description': 'नया समय HH:MM (24 घंटे, वैकल्पिक)'},
+            'end_time': {'type': 'string', 'description': 'नया खत्म समय HH:MM (वैकल्पिक)'},
+            'category': {'type': 'string', 'description': 'नई कैटेगरी (वैकल्पिक)'},
+          },
+          'required': ['title'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'complete_task',
+        'description': 'किसी टास्क को पूरा (completed) मार्क करता है।',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'title': {'type': 'string', 'description': 'टास्क का नाम'},
+            'date': {'type': 'string', 'description': 'YYYY-MM-DD (वैकल्पिक)'},
+          },
+          'required': ['title'],
+        },
+      },
+    },
   ];
 
   Future<String> _systemPrompt() async {
@@ -169,19 +232,38 @@ class AiService {
 - ज़रूरत हो तो ही **शब्द** से बोल्ड करें। सूची के लिए • लगाएँ।
 - पहले सीधा उत्तर दें, फिर संक्षेप में कारण या चरण।
 - यूज़र की भाषा (हिंदी, अंग्रेज़ी या मिक्स) में जवाब दें।
-- टास्क जोड़ना, हटाना या दिखाना हो तो दिए गए tools इस्तेमाल करें, फिर नतीजा एक लाइन में बताएँ।
+- टास्क जोड़ना, एडिट करना, पूरा करना, हटाना या दिखाना हो तो **हमेशा पहले दिए गए tool call ज़रूर चलाएँ**; बिना tool चलाए कभी मत कहें कि काम हो गया।
 - सवाल की फ़ोटो हो तो सवाल हल करें और चरण-दर-चरण आसान भाषा में समझाएँ।
 - जो पक्का न हो, वह साफ़ बताएँ।''';
   }
 
   /// यूज़र का संदेश (और चाहें तो फ़ोटो) भेजो, अंतिम जवाब लौटाता है।
   /// Settings में जो भी provider (Gemini / DeepSeek) चुना है, वही इस्तेमाल होता है।
+  late final OfflineAiEngine _offlineFallback = OfflineAiEngine(db);
+  bool _toolExecutedInTurn = false;
+
   Future<String> send({required String text, Uint8List? image, String? imageMime}) async {
+    _toolExecutedInTurn = false;
     final provider = await getProvider();
-    if (provider == 'deepseek') {
-      return _sendDeepSeek(text: text, image: image);
+    final reply = provider == 'deepseek'
+        ? await _sendDeepSeek(text: text, image: image)
+        : await _sendGemini(text: text, image: image, imageMime: imageMime);
+
+    // अगर API AI ने tool call किए बिना ही "टास्क जोड़/एडिट कर दिया" जैसा जवाब दे दिया,
+    // तो OfflineAiEngine के ज़रिए असली टास्क अपडेट पक्का करें:
+    if (!_toolExecutedInTurn && image == null && text.trim().isNotEmpty) {
+      final lower = text.toLowerCase();
+      final looksLikeTaskCmd = RegExp(
+        r'(add|create|edit|update|delete|remove|complete|done|जोड़|बना|एडिट|बदल|डिलीट|हटा|पूरा)',
+      ).hasMatch(lower);
+      if (looksLikeTaskCmd) {
+        final off = await _offlineFallback.process(text);
+        if (off.dbChanged) {
+          return '$reply\n\n${off.text}';
+        }
+      }
     }
-    return _sendGemini(text: text, image: image, imageMime: imageMime);
+    return reply;
   }
 
   Future<String> _sendGemini({required String text, Uint8List? image, String? imageMime}) async {
@@ -373,6 +455,7 @@ class AiService {
   }
 
   Future<Map<String, dynamic>> _execute(String name, Map<String, dynamic> args) async {
+    _toolExecutedInTurn = true;
     try {
       switch (name) {
         case 'add_task':
@@ -412,6 +495,39 @@ class AiService {
                     })
                 .toList(),
           };
+
+        case 'edit_task':
+          final rows = await db.searchTasks(
+            (args['title'] ?? '').toString(),
+            date: args['date'] == null ? null : _parseDate(args['date']),
+          );
+          if (rows.isEmpty) return {'error': 'टास्क नहीं मिला'};
+          final t = rows.first;
+          final newStart = _parseTime(args['start_time']) ?? (t['startMinutes'] as int);
+          final newEnd = _parseTime(args['end_time']) ?? (t['endMinutes'] as int?);
+          await db.updateTask(
+            t['id'] as int,
+            title: (args['new_title'] ?? t['title']).toString(),
+            description: t['description']?.toString() ?? '',
+            startMinutes: newStart,
+            endMinutes: newEnd,
+            category: (args['category'] ?? t['category']).toString(),
+            priority: t['priority'] as int,
+            notes: t['notes']?.toString() ?? '',
+            reminder: (t['reminder'] as int) == 1,
+            subtasks: t['subtasks']?.toString() ?? '',
+            attachmentPath: t['attachmentPath']?.toString() ?? '',
+          );
+          return {'ok': true, 'updated': (args['new_title'] ?? t['title']).toString()};
+
+        case 'complete_task':
+          final rows = await db.searchTasks(
+            (args['title'] ?? '').toString(),
+            date: args['date'] == null ? null : _parseDate(args['date']),
+          );
+          if (rows.isEmpty) return {'error': 'टास्क नहीं मिला'};
+          await db.updateStatus(rows.first['id'] as int, 'completed');
+          return {'ok': true, 'completed': rows.first['title']};
 
         default:
           return {'error': 'अज्ञात कार्य: $name'};

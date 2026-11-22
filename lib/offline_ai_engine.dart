@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:intl/intl.dart';
 import 'app_database.dart';
 
@@ -18,31 +19,114 @@ class OfflineAiReply {
 class OfflineAiEngine {
   final AppDatabase db;
 
+  // मल्टी-टर्न मेमोरी (ताकि अधूरा टास्क पूछकर पूरा कर सके)
+  bool _awaitingTask = false;
+  String? _pendingTitle;
+  DateTime? _pendingDate;
+  int? _pendingMinutes;
+  bool _pendingDaily = false;
+  String? _pendingCategory;
+
+  // पिछली बातचीत याद रखने के लिए हल्की मेमोरी
+  final List<String> _recentTopics = [];
+
   OfflineAiEngine(this.db);
+
+  void _resetDraft() {
+    _awaitingTask = false;
+    _pendingTitle = null;
+    _pendingDate = null;
+    _pendingMinutes = null;
+    _pendingDaily = false;
+    _pendingCategory = null;
+  }
 
   Future<OfflineAiReply> process(String rawInput) async {
     final input = rawInput.trim();
     if (input.isEmpty) {
       return const OfflineAiReply(
-        text: 'कुछ बोलें या लिखें — जैसे: "कल सुबह 7 बजे जिम का टास्क जोड़ो" या "आज के टास्क दिखाओ"।',
+        text: 'कुछ बोलें या लिखें — जैसे: "कल सुबह 7 बजे जिम जोड़ो", "आज के टास्क दिखाओ", या मुझसे कोई सामान्य बात पूछें।',
       );
     }
 
+    _recentTopics.add(input);
+    if (_recentTopics.length > 10) _recentTopics.removeAt(0);
+
     final lower = input.toLowerCase();
 
-    // 1. Help / Greeting
-    if (_matchesAny(lower, ['help', 'मदद', 'क्या कर सकते', 'hi', 'hello', 'नमस्ते', 'हेलो']) &&
+    // 0. अगर पहले से कोई टास्क ड्राफ्ट अधूरा है, तो उसे पूरा करें (या कैंसिल करें)
+    if (_awaitingTask) {
+      if (_matchesAny(lower, ['cancel', 'रद्द', 'छोड़ो', 'रहने दो', 'मत जोड़ो', 'stop'])) {
+        _resetDraft();
+        return const OfflineAiReply(text: 'ठीक है, टास्क जोड़ना रद्द कर दिया है।');
+      }
+
+      final extractedTime = _extractMinutesOrNull(lower);
+      final extractedDate = _extractDateOrNull(lower);
+      if (extractedTime != null) _pendingMinutes = extractedTime;
+      if (extractedDate != null) _pendingDate = extractedDate;
+      if (_matchesAny(lower, ['daily', 'everyday', 'every day', 'रोज', 'रोज़', 'हर दिन'])) {
+        _pendingDaily = true;
+      }
+
+      final possibleTitle = _extractTitle(input);
+      if ((_pendingTitle == null || _pendingTitle!.isEmpty) && possibleTitle.isNotEmpty) {
+        _pendingTitle = possibleTitle[0].toUpperCase() + possibleTitle.substring(1);
+        _pendingCategory ??= _detectCategory(lower);
+      }
+
+      return _finalizeOrAskDraft();
+    }
+
+    // 1. सामान्य बातचीत / अभिवादन / हाल-चाल / धन्यवाद
+    if (_matchesAny(lower, ['कैसे हो', 'कैसी हो', 'how are you', 'kya haal', 'क्या हाल', 'sab badhiya'])) {
+      return const OfflineAiReply(
+        text: 'मैं बिल्कुल बढ़िया हूँ और आपके टास्क व रूटीन संभालने के लिए तैयार हूँ! 😊 बताइए आज क्या काम करना है?',
+      );
+    }
+
+    if (_matchesAny(lower, ['thank', 'thanks', 'धन्यवाद', 'शुक्रिया', 'thnx', 'shukriya'])) {
+      return const OfflineAiReply(
+        text: 'आपका स्वागत है! हमेशा आपकी मदद के लिए हाज़िर हूँ। 👍',
+      );
+    }
+
+    if (_matchesAny(lower, ['कौन हो', 'who are you', 'तुम्हारा नाम', 'your name'])) {
+      return const OfflineAiReply(
+        text: 'मैं Taskify का स्मार्ट Offline AI सहायक हूँ! मैं बिना इंटरनेट के भी आपके टास्क जोड़, एडिट, पूरा और ट्रैक कर सकता हूँ, और आपसे सामान्य बातचीत भी कर सकता हूँ।',
+      );
+    }
+
+    if (_matchesAny(lower, ['अभी टाइम', 'क्या समय', 'what time', 'kitne baje', 'कितने बजे', 'आज की तारीख', 'today date', 'कौन सा दिन'])) {
+      final now = DateTime.now();
+      return OfflineAiReply(
+        text: '🕒 अभी समय है: ${DateFormat('h:mm a').format(now)}\n📅 आज की तारीख़: ${DateFormat('EEEE, d MMMM yyyy').format(now)}',
+      );
+    }
+
+    if (_matchesAny(lower, ['motivat', 'मोटिवेशन', 'बोर', 'थक', 'focus', 'फ़ोकस', 'पढ़ाई कैसे', 'study tip'])) {
+      return const OfflineAiReply(
+        text: '💡 फ़ोकस टिप: एक समय में सिर्फ़ 1 ज़रूरी टास्क चुनें, 25 मिनट का Focus Timer लगाएँ और फोन की डिस्ट्रैक्शन दूर रखें। छोटे-छोटे कदम ही बड़ा रिजल्ट देते हैं!',
+      );
+    }
+
+    // सरल गणित (जैसे "25 * 4", "150 + 75", "sqrt 144")
+    final mathReply = _trySimpleMath(lower);
+    if (mathReply != null) {
+      return OfflineAiReply(text: mathReply);
+    }
+
+    if (_matchesAny(lower, ['help', 'मदद', 'क्या कर सकते', 'hi', 'hello', 'नमस्ते', 'हेलो', 'hey']) &&
         input.split(RegExp(r'\s+')).length <= 4) {
       return const OfflineAiReply(
-        text: 'नमस्ते! मैं आपका ऑफलाइन Taskify AI हूँ ⚡\n\n'
+        text: 'नमस्ते! मैं आपका स्मार्ट Offline Taskify AI हूँ ⚡\n\n'
             'आप मुझसे कह सकते हैं:\n'
-            '• "कल सुबह 7 बजे जिम का टास्क जोड़ो"\n'
-            '• "रोज सुबह 6 बजे पानी पीने का रूटीन बनाओ"\n'
-            '• "आज के टास्क दिखाओ"\n'
-            '• "जिम वाला टास्क पूरा हो गया"\n'
-            '• "जिम वाला टास्क डिलीट करो"\n'
-            '• "मेरी प्रोग्रेस बताओ"\n\n'
-            'बड़े सवालों के लिए मैं सीधे DeepSeek से कनेक्ट कर दूँगा!',
+            '• "कल सुबह 7 बजे जिम जोड़ो"\n'
+            '• "टास्क जोड़ो" (मैं नाम और समय पूछ लूँगा)\n'
+            '• "जिम वाला टास्क एडिट करके 8 बजे कर दो"\n'
+            '• "आज के टास्क दिखाओ" / "मेरी प्रोग्रेस बताओ"\n'
+            '• "जिम वाला टास्क पूरा हो गया" / "डिलीट करो"\n\n'
+            'सामान्य बातचीत और सरल गणित भी मैं ऑफलाइन कर सकता हूँ!',
       );
     }
 
@@ -64,7 +148,48 @@ class OfflineAiEngine {
       );
     }
 
-    // 3. Complete Task
+    // 3. Edit / Reschedule Task
+    if (_matchesAny(lower, ['edit', 'change', 'update', 'reschedule', 'बदलो', 'एडिट', 'शिफ्ट', 'टाइम बदल'])) {
+      final newTime = _extractMinutesOrNull(lower);
+      final keyword = _cleanKeywords(input, [
+        'edit', 'change', 'update', 'reschedule', 'time', 'to', 'task', 'my', 'the',
+        'एडिट', 'बदलो', 'बदल', 'कर', 'दो', 'करो', 'शिफ्ट', 'टाइम', 'समय', 'वाला', 'टास्क', 'को', 'से', 'पर', 'बजे',
+      ]);
+      final cleanTitle = _extractTitle(keyword);
+      if (cleanTitle.isEmpty) {
+        return const OfflineAiReply(text: 'कौन सा टास्क एडिट करना है? उसका नाम और नया समय बताएं — जैसे: "जिम वाला टास्क 8 बजे कर दो"।');
+      }
+      final matches = await db.searchTasks(cleanTitle);
+      if (matches.isEmpty) {
+        return OfflineAiReply(text: '"$cleanTitle" नाम का कोई आने वाला टास्क नहीं मिला।');
+      }
+      final t = matches.first;
+      if (newTime == null) {
+        return OfflineAiReply(text: '"${t['title']}" का नया समय क्या रखना है? कृपया समय बताएं (जैसे 7:30 PM)।');
+      }
+      final oldStart = t['startMinutes'] as int;
+      final oldEnd = t['endMinutes'] as int?;
+      final duration = (oldEnd != null && oldEnd > oldStart) ? (oldEnd - oldStart) : 60;
+      await db.updateTask(
+        t['id'] as int,
+        title: t['title'].toString(),
+        description: t['description']?.toString() ?? '',
+        startMinutes: newTime,
+        endMinutes: (newTime + duration) % 1440,
+        category: t['category'].toString(),
+        priority: t['priority'] as int,
+        notes: t['notes']?.toString() ?? '',
+        reminder: (t['reminder'] as int) == 1,
+        subtasks: t['subtasks']?.toString() ?? '',
+        attachmentPath: t['attachmentPath']?.toString() ?? '',
+      );
+      return OfflineAiReply(
+        text: '✏️ "${t['title']}" का समय बदलकर ${_formatMinutes(newTime)} कर दिया गया है।',
+        dbChanged: true,
+      );
+    }
+
+    // 4. Complete Task
     if (_matchesAny(lower, ['complete', 'done', 'finish', 'पूरा', 'खत्म', 'हो गया', 'कर लिया'])) {
       final keyword = _cleanKeywords(input, [
         'complete', 'completed', 'done', 'finish', 'finished', 'mark', 'as', 'task', 'my', 'the',
@@ -88,7 +213,7 @@ class OfflineAiEngine {
       );
     }
 
-    // 4. Delete Task
+    // 5. Delete Task
     if (_matchesAny(lower, ['delete', 'remove', 'हटाओ', 'डिलीट', 'हटा दो', 'मिटाओ'])) {
       final keyword = _cleanKeywords(input, [
         'delete', 'remove', 'cancel', 'task', 'my', 'the',
@@ -111,9 +236,9 @@ class OfflineAiEngine {
       );
     }
 
-    // 5. List / Show Tasks
+    // 6. List / Show Tasks
     if (_matchesAny(lower, ['show', 'list', 'tasks', 'टास्क दिखाओ', 'बाकी', 'pending', 'क्या है', 'कौन से', 'आज के टास्क', 'कल के टास्क'])) {
-      final targetDate = _extractDate(lower);
+      final targetDate = _extractDateOrNull(lower) ?? DateTime.now();
       final tasks = await db.getTasks(targetDate);
       final dateLabel = _dateLabel(targetDate);
 
@@ -137,57 +262,126 @@ class OfflineAiEngine {
       return OfflineAiReply(text: '📅 $dateLabel के टास्क (${filtered.length}):\n\n$lines');
     }
 
-    // 6. Add Task / Routine / Reminder
+    // 7. Add Task / Routine / Reminder — समझदारी से नाम और समय जांचकर जोड़ें या पूछें!
     if (_matchesAny(lower, [
           'add', 'create', 'remind', 'reminder', 'schedule', 'routine', 'daily',
-          'जोड़ो', 'जोड़', 'बनाओ', 'बना', 'लगाओ', 'लगा', 'टास्क', 'रूटीन', 'रिमाइंडर', 'अलार्म', 'बजे', 'am', 'pm',
+          'जोड़ो', 'जोड़', 'बनाओ', 'बना', 'लगाओ', 'लगा', 'टास्क', 'रूटीन', 'रिमाइंडर', 'अलार्म',
         ])) {
-      final date = _extractDate(lower);
-      final startMinutes = _extractMinutes(lower);
-      final isDaily = _matchesAny(lower, ['daily', 'everyday', 'every day', 'routine', 'रोज', 'रोज़', 'हर दिन', 'रूटीन']);
-      final category = _detectCategory(lower);
+      _pendingDate = _extractDateOrNull(lower) ?? DateTime.now();
+      _pendingMinutes = _extractMinutesOrNull(lower);
+      _pendingDaily = _matchesAny(lower, ['daily', 'everyday', 'every day', 'routine', 'रोज', 'रोज़', 'हर दिन', 'रूटीन']);
+      _pendingCategory = _detectCategory(lower);
 
-      String title = _extractTitle(input);
-      if (title.isEmpty) {
-        title = 'New Task';
-      } else {
-        title = title[0].toUpperCase() + title.substring(1);
-      }
+      final title = _extractTitle(input);
+      _pendingTitle = title.isEmpty ? null : (title[0].toUpperCase() + title.substring(1));
+      _awaitingTask = true;
 
-      await db.addTask(
-        date: date,
-        title: title,
-        startMinutes: startMinutes,
-        endMinutes: (startMinutes + 60) % 1440,
-        category: category,
-        priority: 2,
-        repeatType: isDaily ? 'daily' : 'once',
-        reminder: true,
-      );
+      return _finalizeOrAskDraft();
+    }
 
-      if (isDaily) {
-        await db.autoAllocateRollingHabits();
-      }
-
-      final dateLabel = isDaily ? 'रोज़ (Daily)' : _dateLabel(date);
-      final timeLabel = _formatMinutes(startMinutes);
-
-      return OfflineAiReply(
-        text: '✅ टास्क सेव हो गया!\n'
-            '• नाम: $title\n'
-            '• समय: $dateLabel, $timeLabel\n'
-            '• कैटेगरी: $category\n'
-            '• 🔔 रिमाइंडर: चालू',
-        dbChanged: true,
+    // 8. सामान्य छोटा जवाब या DeepSeek Web का सुझाव
+    if (input.split(RegExp(r'\s+')).length <= 3 && !_matchesAny(lower, ['क्या', 'क्यों', 'कैसे', 'what', 'why', 'how', 'explain', 'solve'])) {
+      return const OfflineAiReply(
+        text: 'मैं आपकी बात सुन रहा हूँ! अगर कोई टास्क जोड़ना हो तो नाम और समय बताएं, या कोई सवाल पूछें।',
       );
     }
 
-    // 7. Fallback -> Connect directly to DeepSeek Web
     return OfflineAiReply(
-      text: 'यह एक जनरल/बड़ा सवाल लग रहा है। इसे नीचे दिए बटन से सीधे **DeepSeek Web** पर पूछें 👇',
+      text: 'यह एक विस्तृत या ऑनलाइन जानकारी वाला सवाल है। नीचे बटन से सीधे **DeepSeek Web** या **API AI** पर पूछ सकते हैं 👇',
       suggestDeepSeek: true,
       deepSeekQuery: input,
     );
+  }
+
+  Future<OfflineAiReply> _finalizeOrAskDraft() async {
+    if (_pendingTitle == null || _pendingTitle!.trim().isEmpty) {
+      return const OfflineAiReply(
+        text: 'ज़रूर! इस टास्क का **नाम** क्या रखना है? (और अगर समय भी बताना चाहें तो साथ में बोल दें, जैसे "जिम 7 बजे")',
+      );
+    }
+    if (_pendingMinutes == null) {
+      return OfflineAiReply(
+        text: 'ठीक है, **"$_pendingTitle"** किस समय के लिए जोड़ना है? (जैसे "सुबह 7 बजे" या "6:30 PM")',
+      );
+    }
+
+    final title = _pendingTitle!;
+    final date = _pendingDate ?? DateTime.now();
+    final startMinutes = _pendingMinutes!;
+    final isDaily = _pendingDaily;
+    final category = _pendingCategory ?? 'Personal';
+
+    await db.addTask(
+      date: date,
+      title: title,
+      startMinutes: startMinutes,
+      endMinutes: (startMinutes + 60) % 1440,
+      category: category,
+      priority: 2,
+      repeatType: isDaily ? 'daily' : 'once',
+      reminder: true,
+    );
+
+    if (isDaily) {
+      await db.autoAllocateRollingHabits();
+    }
+
+    final dateLabel = isDaily ? 'रोज़ (Daily)' : _dateLabel(date);
+    final timeLabel = _formatMinutes(startMinutes);
+    _resetDraft();
+
+    return OfflineAiReply(
+      text: '✅ टास्क सेव हो गया!\n'
+          '• नाम: $title\n'
+          '• समय: $dateLabel, $timeLabel\n'
+          '• कैटेगरी: $category\n'
+          '• 🔔 रिमाइंडर: चालू',
+      dbChanged: true,
+    );
+  }
+
+  String? _trySimpleMath(String lower) {
+    final m = RegExp(r'^\s*(-?\d+(?:\.\d+)?)\s*([+\-*/x×÷])\s*(-?\d+(?:\.\d+)?)\s*$').firstMatch(lower);
+    if (m != null) {
+      final a = double.tryParse(m.group(1)!);
+      final op = m.group(2)!;
+      final b = double.tryParse(m.group(3)!);
+      if (a != null && b != null) {
+        double res;
+        switch (op) {
+          case '+':
+            res = a + b;
+            break;
+          case '-':
+            res = a - b;
+            break;
+          case '*':
+          case 'x':
+          case '×':
+            res = a * b;
+            break;
+          case '/':
+          case '÷':
+            if (b == 0) return '0 से भाग (divide) नहीं किया जा सकता।';
+            res = a / b;
+            break;
+          default:
+            return null;
+        }
+        final formatted = res == res.roundToDouble() ? res.toInt().toString() : res.toStringAsFixed(2);
+        return '🧮 उत्तर: $formatted';
+      }
+    }
+    final sq = RegExp(r'(?:sqrt|वर्गमूल)\s*\(?\s*(\d+(?:\.\d+)?)\s*\)?').firstMatch(lower);
+    if (sq != null) {
+      final n = double.tryParse(sq.group(1)!);
+      if (n != null) {
+        final r = math.sqrt(n);
+        final formatted = r == r.roundToDouble() ? r.toInt().toString() : r.toStringAsFixed(3);
+        return '🧮 √$n = $formatted';
+      }
+    }
+    return null;
   }
 
   bool _matchesAny(String text, List<String> words) {
@@ -197,7 +391,7 @@ class OfflineAiEngine {
     return false;
   }
 
-  DateTime _extractDate(String lower) {
+  DateTime? _extractDateOrNull(String lower) {
     final now = DateTime.now();
     if (lower.contains('परसों') || lower.contains('day after tomorrow')) {
       return now.add(const Duration(days: 2));
@@ -205,10 +399,13 @@ class OfflineAiEngine {
     if (lower.contains('कल') || lower.contains('tomorrow')) {
       return now.add(const Duration(days: 1));
     }
-    return now;
+    if (lower.contains('आज') || lower.contains('today')) {
+      return now;
+    }
+    return null;
   }
 
-  int _extractMinutes(String lower) {
+  int? _extractMinutesOrNull(String lower) {
     final amPmRegex = RegExp(r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)');
     final m1 = amPmRegex.firstMatch(lower);
     if (m1 != null) {
@@ -238,9 +435,7 @@ class OfflineAiEngine {
       return h * 60 + min;
     }
 
-    final now = DateTime.now();
-    final nextHour = (now.hour + 1) % 24;
-    return nextHour * 60;
+    return null;
   }
 
   String _detectCategory(String lower) {
@@ -268,15 +463,18 @@ class OfflineAiEngine {
     return _cleanKeywords(cleaned, [
       'add', 'create', 'remind', 'me', 'to', 'reminder', 'schedule', 'task', 'routine',
       'daily', 'everyday', 'every', 'day', 'today', 'tomorrow', 'at', 'for', 'a', 'an', 'the',
-      'जोड़ो', 'जोड़', 'बनाओ', 'बना', 'लगाओ', 'लगा', 'करो', 'टास्क', 'रूटीन', 'रिमाइंडर', 'अलार्म',
-      'आज', 'कल', 'परसों', 'रोज', 'रोज़', 'हर', 'दिन', 'सुबह', 'शाम', 'रात', 'दोपहर', 'का', 'की', 'के', 'को', 'में', 'पर',
+      'new', 'one', 'please', 'pls', 'set', 'make', 'my',
+      'जोड़ो', 'जोड़', 'बनाओ', 'बना', 'लगाओ', 'लगा', 'करो', 'करना', 'दो', 'देना', 'चाहिए',
+      'टास्क', 'रूटीन', 'रिमाइंडर', 'अलार्म', 'नया', 'एक', 'वाला', 'मेरा',
+      'आज', 'कल', 'परसों', 'रोज', 'रोज़', 'हर', 'दिन', 'सुबह', 'शाम', 'रात', 'दोपहर',
+      'का', 'की', 'के', 'को', 'में', 'पर', 'से', 'है', 'हूं', 'हूँ',
     ]);
   }
 
   String _cleanKeywords(String input, List<String> stopWords) {
     final stopSet = stopWords.map((e) => e.toLowerCase()).toSet();
     final parts = input.split(RegExp(r'\s+')).where((w) {
-      final clean = w.replaceAll(RegExp(r'[,.!?]'), '').toLowerCase();
+      final clean = w.replaceAll(RegExp(r'[,.!?।]'), '').toLowerCase();
       return clean.isNotEmpty && !stopSet.contains(clean);
     });
     return parts.join(' ').trim();

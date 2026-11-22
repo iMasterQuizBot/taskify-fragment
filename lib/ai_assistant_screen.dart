@@ -101,12 +101,18 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
 
   Future<void> clearChat() async {
     if (_messages.isEmpty) return;
-    final yes = await confirm(
+    final first = await confirm(
       context,
       'चैट डिलीट करें?',
-      'क्या आप ${_isToday ? "आज" : DateFormat("d MMM yyyy").format(_selectedDate)} की सभी API AI चैट्स हमेशा के लिए हटाना चाहते हैं?',
+      'क्या आप ${_isToday ? "आज" : DateFormat("d MMM yyyy").format(_selectedDate)} की सभी API AI चैट्स डिलीट करना चाहते हैं?',
     );
-    if (!yes) return;
+    if (!first || !mounted) return;
+    final second = await confirm(
+      context,
+      'पक्का डिलीट करें?',
+      'यह कार्रवाई वापस नहीं होगी। क्या आप सच में सभी चैट हटाना चाहते हैं?',
+    );
+    if (!second) return;
     await widget.db.clearAiMessages('api', chatDate: _selectedDateKey);
     _ai.resetChat();
     if (!mounted) return;

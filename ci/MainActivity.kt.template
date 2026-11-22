@@ -1,10 +1,18 @@
 package __PKG__
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
+import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
@@ -73,13 +81,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        // 3) आवाज़ों का डेटा डाउनलोड/मैनेज करने के लिए Android के असली TTS
-        // इंजन (Google Text-to-Speech) की सेटिंग/डेटा-इंस्टॉलर खोलना।
-        // नोट: Android किसी भी ऐप को किसी "एक ख़ास" आवाज़ को सीधे डाउनलोड करने
-        // का तरीका नहीं देता — सिर्फ़ Google TTS का अपना डेटा-मैनेजर खोला जा
-        // सकता है, जहाँ से यूज़र भाषा चुनकर उसका डेटा डाउनलोड करता है। इसलिए
-        // यह बटन "वो आधिकारिक स्क्रीन" खोलता है, न कि किसी एक voice को छुपाकर
-        // अपने-आप डाउनलोड करता है (जो Android में किसी भी ऐप के लिए संभव नहीं)।
+        // 3) Google Text-to-Speech डेटा-इंस्टॉलर खोलना
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taskify/tts")
             .setMethodCallHandler { call, result ->
                 if (call.method == "openVoiceData") {
@@ -95,6 +97,35 @@ class MainActivity : FlutterActivity() {
                     }
                 } else {
                     result.notImplemented()
+                }
+            }
+
+        // 4) Home बटन दबाने पर भी Voice AI को बैकग्राउंड में चालू रखने के लिए Foreground Service
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taskify/background")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startVoiceService" -> {
+                        try {
+                            val intent = Intent(this, TaskifyVoiceService::class.java)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "stopVoiceService" -> {
+                        try {
+                            stopService(Intent(this, TaskifyVoiceService::class.java))
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    else -> result.notImplemented()
                 }
             }
     }
@@ -135,5 +166,60 @@ class MainActivity : FlutterActivity() {
         audioExecutor.execute { stopTrack() }
         audioExecutor.shutdown()
         super.onDestroy()
+    }
+}
+
+class TaskifyVoiceService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val channelId = "taskify_voice_bg"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val mgr = getSystemService(NotificationManager::class.java)
+            val ch = NotificationChannel(
+                channelId,
+                "Taskify Voice AI",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            mgr?.createNotificationChannel(ch)
+        }
+
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val pending = if (launchIntent != null) {
+            PendingIntent.getActivity(
+                this,
+                0,
+                launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            null
+        }
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+
+        val notification = builder
+            .setContentTitle("Taskify Live Voice AI")
+            .setContentText("Voice assistant is active in background")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true)
+            .apply { if (pending != null) setContentIntent(pending) }
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                9001,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else {
+            startForeground(9001, notification)
+        }
+        return START_STICKY
     }
 }

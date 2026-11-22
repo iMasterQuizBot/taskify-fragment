@@ -98,6 +98,10 @@ jobs:
           # बदला हुआ दिखता था। अब हमेशा "Taskify" ही label रहेगा।
           app.set(attr("label"), "Taskify")
 
+          for act in app.findall("activity"):
+              if "MainActivity" in (act.get(attr("name")) or ""):
+                  act.set(attr("windowSoftInputMode"), "adjustResize")
+
           permissions = [
               "android.permission.INTERNET",
               "android.permission.RECORD_AUDIO",

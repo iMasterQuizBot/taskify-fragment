@@ -15,13 +15,13 @@ import android.os.Build
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.util.concurrent.Executors
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val audioExecutor = Executors.newSingleThreadExecutor()
     private var track: AudioTrack? = null
 
@@ -126,6 +126,32 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     else -> result.notImplemented()
+                }
+            }
+
+        // 5) Android Home Screen Apple-Glass Widget अपडेट करना
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taskify/widget")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "updateWidget") {
+                    try {
+                        val prefs = getSharedPreferences(TaskifyWidgetProvider.PREFS_NAME, MODE_PRIVATE)
+                        val tasks = call.argument<List<String>>("tasks") ?: emptyList()
+                        prefs.edit()
+                            .putString("title", call.argument<String>("title") ?: "Taskify")
+                            .putInt("done", call.argument<Int>("done") ?: 0)
+                            .putInt("total", call.argument<Int>("total") ?: 0)
+                            .putInt("streak", call.argument<Int>("streak") ?: 0)
+                            .putString("task1", tasks.getOrNull(0) ?: "No pending tasks")
+                            .putString("task2", tasks.getOrNull(1) ?: "")
+                            .putString("task3", tasks.getOrNull(2) ?: "")
+                            .apply()
+                        TaskifyWidgetProvider.updateAll(this)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                } else {
+                    result.notImplemented()
                 }
             }
     }

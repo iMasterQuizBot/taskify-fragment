@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'ai_service.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
 import 'calendar_page.dart';
@@ -44,7 +45,10 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     pageController = PageController(initialPage: 0);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _askNotificationOnce());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _askNotificationOnce();
+      AiService.warmUp(widget.db);
+    });
   }
 
   Future<void> _askNotificationOnce() async {

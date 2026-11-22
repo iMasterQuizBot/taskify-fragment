@@ -2,10 +2,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'app_database.dart';
+import 'tts_voice.dart';
 
 /// Gemini API. Key यूज़र अपने फ़ोन में डालता है (flutter_secure_storage में, सुरक्षित)।
 /// कोई बैकएंड नहीं: ऐप सीधे Google के API से बात करता है।
@@ -28,6 +32,32 @@ class AiService {
   final List<Map<String, dynamic>> _dsHistory = []; // DeepSeek / OpenAI फ़ॉर्मेट
 
   AiService(this.db);
+
+  static String? cachedProvider;
+  static String? cachedGeminiKey;
+  static String? cachedDeepseekKey;
+  static bool warmedUp = false;
+
+  /// ऐप खुलते ही Offline AI (STT/TTS/DB) और API AI (keys/settings) को पहले से तैयार करता है।
+  static Future<void> warmUp(AppDatabase db) async {
+    if (warmedUp) return;
+    warmedUp = true;
+    try {
+      cachedProvider = (await db.getSetting('aiProvider'))?.trim();
+      cachedGeminiKey = await getApiKey();
+      cachedDeepseekKey = await getDeepseekKey();
+      await db.getAiMessages('offline');
+      await db.getAiMessages('api');
+
+      final tts = FlutterTts();
+      await TtsVoice.apply(tts, db);
+
+      if (await Permission.microphone.isGranted) {
+        final stt = SpeechToText();
+        await stt.initialize();
+      }
+    } catch (_) {}
+  }
 
   void resetChat() {
     _history.clear();

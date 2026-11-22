@@ -82,6 +82,7 @@ class SoundService {
   static Future<void> _loadCatalog() async {
     _assetByKey.clear();
     _labelByKey.clear();
+    var clickFound = false;
     try {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
       final paths = manifest.listAssets().where((p) => p.startsWith(_soundsDir)).toList()..sort();
@@ -97,6 +98,7 @@ class SoundService {
         final asset = path.substring('assets/'.length); // AssetSource के लिए
         if (key == _clickKey) {
           _clickAsset = asset;
+          clickFound = true;
           continue;
         }
         if (_assetByKey.containsKey(key)) continue; // एक ही नाम की दूसरी फ़ाइल छोड़ दें
@@ -117,6 +119,20 @@ class SoundService {
         _assetByKey[k] = 'sounds/$k.wav';
         _labelByKey[k] = v;
       });
+    }
+
+    // sound_click फ़ाइल न हो तो नाम में "click" वाली कोई फ़ाइल टैप-साउंड बन जाती है
+    // (जैसे mixkit-select-click-1109.wav), वरना लिस्ट की पहली फ़ाइल।
+    if (!clickFound && _assetByKey.isNotEmpty) {
+      String? pick;
+      for (final k in _assetByKey.keys) {
+        if (k.contains('click')) {
+          pick = k;
+          break;
+        }
+      }
+      pick ??= _assetByKey.keys.first;
+      _clickAsset = _assetByKey[pick]!;
     }
   }
 

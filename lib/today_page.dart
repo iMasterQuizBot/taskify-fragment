@@ -81,7 +81,7 @@ class TodayPageState extends State<TodayPage> with AutomaticKeepAliveClientMixin
       });
     }
     if (DateUtils.isSameDay(widget.date, DateTime.now())) {
-      _syncHomeWidget(list, streak);
+      _syncHomeWidget(list, streak, moodRow?['mood']?.toString() ?? 'Focused');
     }
   }
 
@@ -1175,20 +1175,41 @@ class TodayPageState extends State<TodayPage> with AutomaticKeepAliveClientMixin
     searchCtrl.dispose();
   }
 
-  Future<void> _syncHomeWidget(List<Map<String, dynamic>> dayTasks, int streak) async {
+  Future<void> _syncHomeWidget(List<Map<String, dynamic>> dayTasks, int streak, String mood) async {
     try {
       final activeList = dayTasks.where((t) => t['status'] != 'skipped').toList();
       final doneCount = activeList.where((t) => t['status'] == 'completed').length;
-      final pendingTitles = activeList
-          .where((t) => t['status'] == 'pending')
-          .take(3)
+      final pendingList = activeList.where((t) => t['status'] == 'pending').toList();
+      final overdueCount = pendingList.where((t) => isOverdue(t, DateTime.now())).length;
+
+      int studyMins = 0;
+      for (final t in activeList) {
+        final cat = t['category'].toString().toLowerCase();
+        if ((cat == 'study' || cat == 'learning') && t['status'] == 'completed') {
+          final s = t['startMinutes'] as int;
+          final e = (t['endMinutes'] as int?) ?? (s + 60);
+          if (e > s) studyMins += (e - s);
+        }
+      }
+
+      final pendingTitles = pendingList
+          .take(5)
           .map((t) => '${formatMinutes(t['startMinutes'])} • ${t['title']}')
           .toList();
+      final nextTask = pendingTitles.isNotEmpty ? pendingTitles.first : 'All done today!';
+
       await _widgetChannel.invokeMethod('updateWidget', {
         'title': widget.appTitle,
         'done': doneCount,
         'total': activeList.length,
         'streak': streak,
+        'studyMins': studyMins,
+        'overdueCount': overdueCount,
+        'pendingCount': pendingList.length,
+        'weeklyPct': activeList.isEmpty ? 0 : ((doneCount / activeList.length) * 100).round(),
+        'monthlyPct': activeList.isEmpty ? 0 : ((doneCount / activeList.length) * 100).round(),
+        'mood': mood,
+        'nextTask': nextTask,
         'tasks': pendingTitles,
       });
     } catch (_) {}

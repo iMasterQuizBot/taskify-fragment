@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -6,7 +5,6 @@ import 'ai_service.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
 import 'calendar_page.dart';
-import 'permission_setup_screen.dart';
 import 'routines_page.dart';
 import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
@@ -49,26 +47,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     pageController = PageController(initialPage: 0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkFirstTimePermissions();
       AiService.warmUp(widget.db);
     });
   }
 
-  Future<void> _checkFirstTimePermissions() async {
-    final done = await widget.db.getSetting('permissionsSetupDone');
-    if (done == '1' || !mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PermissionSetupScreen(
-          db: widget.db,
-          onDone: () {
-            if (mounted) Navigator.pop(context);
-          },
-        ),
-      ),
-    );
-  }
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -252,9 +235,7 @@ class _LiquidFloatingDock extends StatelessWidget {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(26),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Container(
+          child: Container(
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
                   begin: Alignment.topLeft,
@@ -348,7 +329,6 @@ class _LiquidFloatingDock extends StatelessWidget {
             );
           },
         ),
-            ),
           ),
         ),
       ),

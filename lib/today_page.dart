@@ -971,16 +971,6 @@ class TodayPageState extends State<TodayPage> {
       margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       glowColor: AppColors.rose,
-      onTap: () async {
-        final moved = await widget.db.rescheduleOverdueTasks(widget.date);
-        if (!mounted) return;
-        if (moved > 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('✨ $moved Overdue टास्क अगले खाली स्लॉट में शिफ़्ट किए गए।')),
-          );
-          widget.onChanged();
-        }
-      },
       child: Row(
         children: [
           Container(
@@ -1000,8 +990,95 @@ class TodayPageState extends State<TodayPage> {
               style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w800, fontSize: 12.5),
             ),
           ),
-          const GlowBadge(text: '1-Tap Fix', color: AppColors.cyan),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () => _openRescheduleOptions(overdueCount),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                child: GlowBadge(text: '1-Tap Fix', color: AppColors.cyan),
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openRescheduleOptions(int overdueCount) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF131824),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Reschedule $overdueCount Overdue Task${overdueCount == 1 ? '' : 's'}',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Colors.white),
+              ),
+              const SizedBox(height: 10),
+              ListTile(
+                leading: const Icon(Icons.next_plan_rounded, color: AppColors.cyan),
+                title: const Text('Reschedule to Next Task', style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: const Text('अगले खाली टाइम स्लॉट में अपने-आप शिफ़्ट करें'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final moved = await widget.db.rescheduleOverdueTasks(widget.date);
+                  if (!mounted) return;
+                  if (moved > 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('✨ $moved Overdue टास्क अगले खाली स्लॉट में शिफ़्ट किए गए।')),
+                    );
+                    widget.onChanged();
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.schedule_rounded, color: AppColors.violet),
+                title: const Text('Reschedule to Time', style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: const Text('अपनी पसंद का समय चुनकर उस समय पर शिफ़्ट करें'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final picked = await showTimePicker(
+                    context: context,
+                    initialTime: TimeOfDay.now(),
+                    builder: (context, child) => MediaQuery(
+                      data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+                      child: child!,
+                    ),
+                  );
+                  if (picked == null || !mounted) return;
+                  final customMins = picked.hour * 60 + picked.minute;
+                  final moved = await widget.db.rescheduleOverdueTasks(
+                    widget.date,
+                    customStartMinutes: customMins,
+                  );
+                  if (!mounted) return;
+                  if (moved > 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('🕒 $moved Overdue टास्क ${formatMinutes(customMins)} से शिफ़्ट किए गए।')),
+                    );
+                    widget.onChanged();
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

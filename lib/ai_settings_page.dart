@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import 'ai_service.dart';
@@ -6,6 +7,7 @@ import 'app_database.dart';
 import 'app_theme.dart';
 import 'live_voice_service.dart';
 import 'tts_voice.dart';
+import 'tts_voice_labels.dart';
 
 class AiSettingsPage extends StatefulWidget {
   final AppDatabase db;
@@ -16,6 +18,10 @@ class AiSettingsPage extends StatefulWidget {
 }
 
 class _AiSettingsPageState extends State<AiSettingsPage> {
+  // फ़ोन का असली Google TTS "वॉइस डेटा मैनेजर" खोलने के लिए — ताकि यूज़र
+  // ख़ुद चुनकर भाषा का डेटा डाउनलोड कर सके (ज़्यादा जानकारी नीचे बटन पर)।
+  static const MethodChannel _ttsChannel = MethodChannel('taskify/tts');
+
   final _keyCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
@@ -145,6 +151,16 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
       _msg('फ़ोन पर बोलने वाली आवाज़ें नहीं मिलीं। Google Text-to-Speech इंस्टॉल करें।');
       return;
     }
+
+    // FIX: पहले यहाँ raw system नाम ("te-IN-language (te-IN)") दिखता था, जिसे
+    // पढ़ना मुश्किल था — इसी वजह से गलती से दूसरी भाषा की आवाज़ चुन ली जाती थी।
+    // अब देश + भाषा + ऑफ़लाइन/ऑनलाइन साफ़-साफ़ दिखेगा, और भाषा के हिसाब से
+    // क्रम में लगा दिया गया है ताकि अपनी भाषा ढूँढना आसान हो।
+    final withLabels = voices
+        .map((v) => (voice: v, label: TtsVoiceLabels.simpleLabel(v['locale'] ?? '', v['name'] ?? '')))
+        .toList()
+      ..sort((a, b) => a.label.compareTo(b.label));
+
     final chosen = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -152,12 +168,16 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
         children: [
           SimpleDialogOption(
             onPressed: () => Navigator.pop(ctx, {'name': '', 'locale': ''}),
-            child: const Text('डिफ़ॉल्ट (फ़ोन की आवाज़)'),
+            child: const Text('डिफ़ॉल्ट (फ़ोन की आवाज़)', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
-          for (final v in voices)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 6, 24, 2),
+            child: Divider(height: 1),
+          ),
+          for (final item in withLabels)
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, v),
-              child: Text('${v['name']}  (${v['locale']})', style: const TextStyle(fontSize: 13)),
+              onPressed: () => Navigator.pop(ctx, item.voice),
+              child: Text(item.label, style: const TextStyle(fontSize: 13.5)),
             ),
         ],
       ),
@@ -165,9 +185,27 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     if (chosen == null) return;
     await widget.db.setSetting('ttsVoiceName', chosen['name'] ?? '');
     await widget.db.setSetting('ttsVoiceLocale', chosen['locale'] ?? '');
-    final shown = (chosen['name'] ?? '').isEmpty ? 'डिफ़ॉल्ट (फ़ोन की आवाज़)' : chosen['name']!;
+    final shown = (chosen['name'] ?? '').isEmpty
+        ? 'डिफ़ॉल्ट (फ़ोन की आवाज़)'
+        : TtsVoiceLabels.simpleLabel(chosen['locale'] ?? '', chosen['name'] ?? '');
     setState(() => _deviceVoice = shown);
     await _preview();
+  }
+
+  /// Android किसी भी ऐप को "सिर्फ़ एक" भाषा की आवाज़ चुपचाप डाउनलोड करने की
+  /// इजाज़त नहीं देता — यह सीधा Google Text-to-Speech का अपना "डेटा मैनेजर"
+  /// खोलता है, जहाँ यूज़र ख़ुद भाषा चुनकर उसका ऑफ़लाइन डेटा डाउनलोड कर सकता है।
+  Future<void> _openVoiceDataManager() async {
+    try {
+      final ok = await _ttsChannel.invokeMethod<bool>('openVoiceData');
+      if (ok != true && mounted) {
+        _msg('यह फ़ोन पर नहीं खुल पाया। Settings → System → Languages → Text-to-speech में जाकर वहाँ से डाउनलोड करें।');
+      }
+    } catch (_) {
+      if (mounted) {
+        _msg('यह फ़ोन पर नहीं खुल पाया। Settings → System → Languages → Text-to-speech में जाकर वहाँ से डाउनलोड करें।');
+      }
+    }
   }
 
   Future<void> _setRate(double v) async {
@@ -329,6 +367,22 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                     onPressed: _preview,
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: const Text('आवाज़ सुनें'),
+                  ),
+                ),
+                const Divider(height: 18),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _openVoiceDataManager,
+                    icon: const Icon(Icons.download_rounded, color: AppColors.cyan),
+                    label: const Text('आवाज़ डेटा डाउनलोड / मैनेज करें'),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.only(left: 4, right: 4),
+                  child: Text(
+                    'यह Google Text-to-Speech का अपना पेज खोलता है, जहाँ अपनी भाषा चुनकर उसका ऑफ़लाइन डेटा डाउनलोड करें।',
+                    style: TextStyle(fontSize: 10.5, color: AppColors.textMuted),
                   ),
                 ),
               ],

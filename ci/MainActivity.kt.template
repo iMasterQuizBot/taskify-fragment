@@ -39,7 +39,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onResume() {
         super.onResume()
         applyRefreshRate(targetHz)
-        try { TaskifyWidgetProvider.updateAll(this) } catch (_: Exception) {}
+        try { TaskifyAllWidgets.updateAll(this) } catch (_: Exception) {}
     }
 
     private fun applyRefreshRate(hz: Float) {
@@ -174,18 +174,27 @@ class MainActivity : FlutterFragmentActivity() {
             .setMethodCallHandler { call, result ->
                 if (call.method == "updateWidget") {
                     try {
-                        val prefs = getSharedPreferences(TaskifyWidgetProvider.PREFS_NAME, MODE_PRIVATE)
+                        val prefs = getSharedPreferences(TaskifyAllWidgets.PREFS, MODE_PRIVATE)
                         val tasks = call.argument<List<String>>("tasks") ?: emptyList()
                         prefs.edit()
                             .putString("title", call.argument<String>("title") ?: "Taskify")
                             .putInt("done", call.argument<Int>("done") ?: 0)
                             .putInt("total", call.argument<Int>("total") ?: 0)
                             .putInt("streak", call.argument<Int>("streak") ?: 0)
+                            .putInt("studyMins", call.argument<Int>("studyMins") ?: 0)
+                            .putInt("overdueCount", call.argument<Int>("overdueCount") ?: 0)
+                            .putInt("pendingCount", call.argument<Int>("pendingCount") ?: 0)
+                            .putInt("weeklyPct", call.argument<Int>("weeklyPct") ?: 0)
+                            .putInt("monthlyPct", call.argument<Int>("monthlyPct") ?: 0)
+                            .putString("mood", call.argument<String>("mood") ?: "Focused")
+                            .putString("nextTask", call.argument<String>("nextTask") ?: "No upcoming task")
                             .putString("task1", tasks.getOrNull(0) ?: "No pending tasks")
                             .putString("task2", tasks.getOrNull(1) ?: "")
                             .putString("task3", tasks.getOrNull(2) ?: "")
+                            .putString("task4", tasks.getOrNull(3) ?: "")
+                            .putString("task5", tasks.getOrNull(4) ?: "")
                             .apply()
-                        TaskifyWidgetProvider.updateAll(this)
+                        TaskifyAllWidgets.updateAll(this)
                         result.success(true)
                     } catch (e: Exception) {
                         result.success(false)

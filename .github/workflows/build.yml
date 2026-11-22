@@ -122,6 +122,7 @@ jobs:
               "android.permission.FOREGROUND_SERVICE_MICROPHONE",
               "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
               "android.permission.USE_BIOMETRIC",
+              "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
           ]
           existing_perms = {
               el.get(attr("name")) for el in root.findall("uses-permission")

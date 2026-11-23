@@ -97,7 +97,7 @@ jobs:
           # FIX: "flutter create" डिफ़ॉल्ट रूप से project-name (routine_app) को ही
           # app का display label बना देता है, इसलिए हर नए build में ऐप का नाम
           # बदला हुआ दिखता था। अब हमेशा "Taskify" ही label रहेगा।
-          app.set(attr("label"), "Taskify")
+          app.set(attr("label"), "Taskifyy")
 
           for act in app.findall("activity"):
               if "MainActivity" in (act.get(attr("name")) or ""):

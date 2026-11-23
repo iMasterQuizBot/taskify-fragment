@@ -32,6 +32,7 @@ class NotificationService {
   static Future<void> init() async {
     if (_ready) return;
     tzdata.initializeTimeZones();
+    try { tz.setLocalLocation(tz.getLocation('Asia/Kolkata')); } catch (_) {}
 
     Object? lastError;
     for (final icon in _iconCandidates) {

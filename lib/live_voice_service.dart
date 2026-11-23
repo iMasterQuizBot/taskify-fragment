@@ -40,6 +40,7 @@ class LiveVoiceService {
   });
 
   bool get muted => _muted;
+  static DateTime _nowIst() => DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
   void setMuted(bool v) => _muted = v;
 
   /// यूज़र के गोला छोड़ते ही माइक बंद करके Gemini को तुरंत जवाब देने का संकेत भेजें
@@ -145,7 +146,10 @@ class LiveVoiceService {
     final assistant = (name == null || name.isEmpty) ? 'Taskify AI' : name;
     final modelName = (model == null || model.isEmpty) ? defaultModel : model;
     final voiceName = (voice == null || voice.isEmpty) ? voices.first : voice;
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final istNow = _nowIst();
+    final todayStr = DateFormat('yyyy-MM-dd').format(istNow);
+    final timeStr24 = DateFormat('HH:mm').format(istNow);
+    final timeStr12 = DateFormat('h:mm a').format(istNow);
 
     onState('connecting');
     _running = true;
@@ -172,7 +176,7 @@ class LiveVoiceService {
         'systemInstruction': {
           'parts': [
             {
-              'text': 'तुम "$assistant" हो, Taskify ऐप का सहायक। आज की तारीख़ $todayStr है। '
+              'text': 'तुम "$assistant" हो, Taskifyy ऐप का सहायक। टाइमज़ोन: भारत (IST, Asia/Kolkata, UTC+05:30)। आज की भारतीय तारीख़ $todayStr और अभी का भारतीय समय $timeStr24 ($timeStr12) है। हमेशा भारतीय समय (IST) में ही टास्क जोड़ें—कभी UTC/ग्लोबल टाइम न लें। '
                   'यूज़र की भाषा में छोटा, सहज जवाब दो। चिन्ह या markdown मत बोलो। '
                   'जब भी यूज़र टास्क जोड़ने, एडिट करने, पूरा करने या डिलीट करने को कहे, तो '
                   'हमेशा दिए गए tool (add_task, edit_task, complete_task, delete_task, list_tasks) '
@@ -214,12 +218,12 @@ class LiveVoiceService {
   }
 
   DateTime _parseDate(dynamic v) {
-    if (v == null) return DateTime.now();
+    if (v == null) return _nowIst();
     try {
       final d = DateTime.parse(v.toString());
       return DateTime(d.year, d.month, d.day);
     } catch (_) {
-      return DateTime.now();
+      return _nowIst();
     }
   }
 

@@ -30,6 +30,8 @@ class AiService {
 
   AiService(this.db);
 
+  static DateTime _nowIst() => DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+
   static String? cachedProvider;
   static String? cachedGeminiKey;
   static String? cachedDeepseekKey;
@@ -43,7 +45,7 @@ class AiService {
       cachedProvider = (await db.getSetting('aiProvider'))?.trim();
       cachedGeminiKey = await getApiKey();
       cachedDeepseekKey = await getDeepseekKey();
-      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final today = DateFormat('yyyy-MM-dd').format(_nowIst());
       await db.getAiMessages('offline', chatDate: today);
       await db.getAiMessages('api', chatDate: today);
     } catch (_) {}
@@ -220,11 +222,14 @@ class AiService {
   Future<String> _systemPrompt() async {
     final name = (await db.getSetting('aiAssistantName'))?.trim();
     final assistant = (name == null || name.isEmpty) ? 'Taskify AI' : name;
-    final now = DateTime.now();
+    final now = _nowIst();
     final today = DateFormat('yyyy-MM-dd').format(now);
     final time = DateFormat('HH:mm').format(now);
-    return '''तुम "$assistant" हो, Taskify ऐप के अंदर का सहायक।
-आज की तारीख: $today, अभी का समय: $time।
+    final time12 = DateFormat('h:mm a').format(now);
+    return '''तुम "$assistant" हो, Taskifyy ऐप के अंदर का सहायक।
+टाइमज़ोन: भारत (IST, Asia/Kolkata, UTC+05:30)।
+आज की भारतीय तारीख: $today, अभी का भारतीय समय: $time ($time12)।
+नियम: हमेशा भारतीय समय (IST, UTC+05:30) का ही उपयोग करें—कभी भी UTC या ग्लोबल टाइम न लगाएँ। जब यूज़र "अभी" या "अभी के टाइम" कहे, तो $time को ही start_time मानें।
 फ़ॉर्मेटिंग के सख़्त नियम:
 - LaTeX, \$ चिन्ह, \\ कमांड, कोड-ब्लॉक या तालिका (table) बिल्कुल न लिखें।
 - गणित सादे Unicode में लिखें, जैसे γ, ρ, ², ³, ×, ÷, √, ≈, %।
@@ -438,18 +443,23 @@ class AiService {
   }
 
   DateTime _parseDate(dynamic v) {
-    if (v == null) return DateTime.now();
+    if (v == null) return _nowIst();
     try {
       final d = DateTime.parse(v.toString());
       return DateTime(d.year, d.month, d.day);
     } catch (_) {
-      return DateTime.now();
+      return _nowIst();
     }
   }
 
   int? _parseTime(dynamic v) {
     if (v == null) return null;
-    final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(v.toString().trim());
+    final s = v.toString().trim().toLowerCase();
+    if (s == 'now' || s == 'current' || s == 'अभी') {
+      final ist = _nowIst();
+      return ist.hour * 60 + ist.minute;
+    }
+    final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(s);
     if (m == null) return null;
     return int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!);
   }

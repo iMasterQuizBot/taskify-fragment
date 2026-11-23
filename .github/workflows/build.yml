@@ -178,6 +178,7 @@ jobs:
               "26 Wide Next Task", "27 Agenda 5 Tasks", "28 Study Hub 4x3", "29 Done vs Pending", "30 Deep Work",
               "31 Pomodoro 25/5", "32 Pomodoro 50/10", "33 Night Review", "34 Exam Target", "35 Priority Strip",
               "36 API AI Pill", "37 DeepSeek Pill", "38 Mega Glass 4x4", "39 Trophy Today", "40 Mood + Date Pill",
+              "41 Offline AI Control", "42 API AI Control",
           ]
           existing_names = {r.get(attr("name")) for r in app.findall("receiver")}
           for idx, wlabel in enumerate(widget_labels, 1):
@@ -193,6 +194,16 @@ jobs:
                   wmeta = ET.SubElement(wrec, "meta-data")
                   wmeta.set(attr("name"), "android.appwidget.provider")
                   wmeta.set(attr("resource"), f"@xml/tg_info_{idx:02d}")
+
+          act_recv_name = f"{os.environ['APP_PKG']}.TaskifyWidgetActionReceiver"
+          if act_recv_name not in existing_names:
+              arec = ET.SubElement(app, "receiver")
+              arec.set(attr("name"), act_recv_name)
+              arec.set(attr("exported"), "false")
+              ainf = ET.SubElement(arec, "intent-filter")
+              for act_str in [f"{os.environ['APP_PKG']}.ACTION_COMPLETE_TOP", f"{os.environ['APP_PKG']}.ACTION_SYNC"]:
+                  aa = ET.SubElement(ainf, "action")
+                  aa.set(attr("name"), act_str)
 
           svc_name = f"{os.environ['APP_PKG']}.TaskifyVoiceService"
           has_svc = any(

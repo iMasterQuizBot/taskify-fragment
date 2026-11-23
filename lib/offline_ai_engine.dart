@@ -155,6 +155,33 @@ class OfflineAiEngine {
 
     final lower = input.toLowerCase();
 
+    // 0.1. A-to-Z ऐप फ़ीचर गाइड (कहाँ से क्या करना है)
+    if (_matchesAny(lower, ['pdf', 'पीडीएफ', 'मंथली रिपोर्ट'])) {
+      return const OfflineAiReply(
+        text: '📄 PDF मंथली रिपोर्ट निकालने के लिए Settings → Productivity Tools → "Generate Monthly Report File" पर टैप करें।',
+      );
+    }
+    if (_matchesAny(lower, ['फिंगरप्रिंट', 'fingerprint', 'biometric', 'pin lock', 'लॉक'])) {
+      return const OfflineAiReply(
+        text: '🔒 PIN और Fingerprint लॉक के लिए Settings → Security में जाएँ, वहाँ पहले 4-अंकों का PIN सेट करें और फिर "Fingerprint / Biometric Unlock" चालू करें।',
+      );
+    }
+    if (_matchesAny(lower, ['रिपीट मोड', 'repeat mode', 'kitne repeat', 'कौन-कौन से रिपीट'])) {
+      return const OfflineAiReply(
+        text: '🔁 Taskifyy में कुल 8 रिपीट मोड हैं: 1) One time, 2) Every day (Daily), 3) Alternate Day (एक दिन छोड़ कर), 4) Weekdays (Mon–Fri), 5) Weekends (Sat–Sun), 6) Custom Days (हफ़्ते के चुने दिन), 7) Custom Dates (कैलेंडर तारीखें), और 8) Spaced Revision (1, 3, 7, 21 दिन)। आप मुझे बोलकर इनमें से कोई भी लगवा सकते हैं!',
+      );
+    }
+    if (_matchesAny(lower, ['बैकअप', 'backup', 'restore', 'import', 'export', 'इम्पोर्ट'])) {
+      return const OfflineAiReply(
+        text: '💾 बैकअप और रीस्टोर के लिए Settings → Backup & Sync में जाएँ। "Export Backup File (.json)" से पूरा बैकअप (टास्क, कैटेगरी, टेम्पलेट, सेटिंग्स, AI चैट) सेव होगा और "Import Backup File (.json)" से वापस आ जाएगा।',
+      );
+    }
+    if (_matchesAny(lower, ['विजेट', 'widget', 'होम स्क्रीन'])) {
+      return const OfflineAiReply(
+        text: '📱 फोन की होम स्क्रीन पर खाली जगह दबाकर रखें → Widgets → Taskifyy चुनें। वहाँ आपको 42 Apple Glass विजेट्स (Progress Ring, Bar Chart, Column Chart, Offline AI, API AI आदि) मिलेंगे!',
+      );
+    }
+
     // 0. डेवलपर पहचान (Dilkhush Chauhan / दिलखुश चौहान)
     if (_matchesAny(lower, [
       'किसने बनाया', 'किसने डेवलप', 'डेवलपर', 'developer', 'who made', 'who created',
@@ -549,7 +576,10 @@ class OfflineAiEngine {
       _pendingCategory = await _detectExistingOrNamedCategory(input, lower) ?? _detectCategory(lower);
 
       final title = _extractCleanTaskTitle(input);
-      _pendingTitle = title.isEmpty ? null : (title[0].toUpperCase() + title.substring(1));
+      final genericTitles = {'task', 'work', 'kaam', 'something', 'new', 'टास्क', 'काम', 'कुछ'};
+      _pendingTitle = (title.isEmpty || genericTitles.contains(title.toLowerCase()) || title.split(' ').length > 6)
+          ? null
+          : (title[0].toUpperCase() + title.substring(1));
       _awaitingTask = true;
 
       return _finalizeOrAskDraft();
@@ -599,6 +629,11 @@ class OfflineAiEngine {
       if (days.isNotEmpty) {
         _pendingRepeatType = 'custom_days';
         _pendingRepeatDays = days.join(',');
+      }
+      final dateMatches = RegExp(r'\b(\d{4}-\d{2}-\d{2})\b').allMatches(lower).map((m) => m.group(1)!).toList();
+      if (dateMatches.isNotEmpty) {
+        _pendingRepeatType = 'custom_dates';
+        _pendingRepeatDays = dateMatches.join(',');
       }
     }
   }

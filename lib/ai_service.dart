@@ -260,6 +260,11 @@ class AiService {
 टाइमज़ोन: भारत (IST, Asia/Kolkata, UTC+05:30)।
 आज की भारतीय तारीख: $today, अभी का भारतीय समय: $time ($time12)।
 मौजूदा कैटेगरी: $cats | करंट स्ट्रीक: $streak दिन।
+ऐप का पूरा नक्शा (A-to-Z जानकारी):
+• 4 टैब: Today (टाइमलाइन, Mood/Energy, Morning/Night Briefing, 1-Tap Fix Overdue, Global Search, Swipe Complete/Skip, Focus Timer 25/5 & 50/10), Calendar (मासिक %), Insights/Stats (Study Time, Weekly/Monthly, Category-wise stats), Routines (Copy to Tomorrow)।
+• AI Hub: Offline AI, API AI, DeepSeek Web (Date-wise saved chat, Long-press सुनें/कॉपी/शेयर/डिलीट)।
+• Settings: App Title, Dark/Light, 120Hz Refresh Rate, Sounds, Indian Voices, PIN + Fingerprint Lock, Full JSON Export/Import, Monthly PDF Report, Permissions Hub।
+• 8 रिपीट मोड: once, daily, alternate (एक दिन छोड़ कर), weekdays (Mon-Fri), weekends (Sat-Sun), custom_days (Mon..Sun), custom_dates (YYYY-MM-DD), spaced (1,3,7,21 दिन)।
 नियम:
 - हमेशा भारतीय समय (IST, UTC+05:30) का ही उपयोग करें। "अभी" कहने पर $time लें।
 - तुम्हारे पास पूरे ऐप का कंट्रोल है: add_task (कैटेगरी, प्रायोरिटी 1-4, रिपीट मोड once/daily/alternate/weekdays/weekends/custom_days/custom_dates/spaced, सबटास्क, नोट्स, रिमाइंडर), edit_task, complete_task, skip_task, delete_task, list_tasks (1-2 महीने की रेंज भी), search_tasks, get_stats, manage_category, reschedule_overdue, set_app_setting।

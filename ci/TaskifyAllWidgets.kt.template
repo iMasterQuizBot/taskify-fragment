@@ -46,7 +46,7 @@ object TaskifyAllWidgets {
 
     fun bind(context: Context, mgr: AppWidgetManager, appWidgetId: Int, no: Int) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val appTitle = prefs.getString("title", "Taskify") ?: "Taskify"
+        val appTitle = prefs.getString("title", "Taskifyy") ?: "Taskifyy"
         val done = prefs.getInt("done", 0)
         val total = prefs.getInt("total", 0)
         val streak = prefs.getInt("streak", 0)

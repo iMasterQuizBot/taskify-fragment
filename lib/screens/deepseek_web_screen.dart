@@ -20,11 +20,13 @@ import '../tts_voice.dart';
 class DeepSeekWebScreen extends StatefulWidget {
   final AppDatabase db;
   final VoidCallback? onDatabaseChanged;
+  final int initialTab;
 
   const DeepSeekWebScreen({
     super.key,
     required this.db,
     this.onDatabaseChanged,
+    this.initialTab = 0,
   });
 
   @override
@@ -57,7 +59,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTab.clamp(0, 2));
     _engine = OfflineAiEngine(widget.db);
     _setupTts();
     _loadOfflineHistory();

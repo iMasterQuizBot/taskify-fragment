@@ -8,6 +8,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.Typeface
 import android.widget.RemoteViews
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -60,6 +68,8 @@ object TaskifyAllWidgets {
         val nextTask: String,
         val tasks: List<String>,
         val freezeTokens: Int,
+        val weekBars: List<Float>,
+        val catBars: List<Pair<String, Float>>,
     )
 
     private fun readLiveSnapshot(context: Context): LiveSnapshot {
@@ -83,6 +93,14 @@ object TaskifyAllWidgets {
             prefs.getString("task5", "") ?: "",
         )
         var freezeTokens = 2
+        val weekBars = MutableList(7) { 0.35f }
+        val catDoneMap = linkedMapOf(
+            "Study" to 0,
+            "Work" to 0,
+            "Health" to 0,
+            "Fit" to 0,
+            "Pers" to 0
+        )
 
         try {
             val dbFile = context.getDatabasePath("my_daily_routine.db")
@@ -117,6 +135,15 @@ object TaskifyAllWidgets {
                         if (cat == "study" || cat == "learning") {
                             val dur = (endM ?: (startM + 60)) - startM
                             if (dur > 0) sMins += dur
+                            catDoneMap["Study"] = (catDoneMap["Study"] ?: 0) + 1
+                        } else if (cat == "work") {
+                            catDoneMap["Work"] = (catDoneMap["Work"] ?: 0) + 1
+                        } else if (cat == "health") {
+                            catDoneMap["Health"] = (catDoneMap["Health"] ?: 0) + 1
+                        } else if (cat == "exercise") {
+                            catDoneMap["Fit"] = (catDoneMap["Fit"] ?: 0) + 1
+                        } else {
+                            catDoneMap["Pers"] = (catDoneMap["Pers"] ?: 0) + 1
                         }
                     } else if (status == "pending") {
                         pCount++
@@ -129,16 +156,29 @@ object TaskifyAllWidgets {
                 }
                 c.close()
 
-                val mCur = db.rawQuery("SELECT mood FROM mood_logs WHERE date = ? LIMIT 1", arrayOf(todayStr))
-                if (mCur.moveToFirst()) {
-                    mood = mCur.getString(0) ?: mood
+                // Last 7 days completion bars
+                val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                for (i in 0..6) {
+                    val dCal = Calendar.getInstance()
+                    dCal.add(Calendar.DAY_OF_YEAR, -(6 - i))
+                    val dStr = fmt.format(dCal.time)
+                    val dc = db.rawQuery("SELECT status FROM tasks WHERE date = ? AND status != 'skipped'", arrayOf(dStr))
+                    var tot = 0
+                    var dn = 0
+                    while (dc.moveToNext()) {
+                        tot++
+                        if (dc.getString(0) == "completed") dn++
+                    }
+                    dc.close()
+                    weekBars[i] = if (tot == 0) 0.12f else (dn.toFloat() / tot.toFloat()).coerceIn(0.12f, 1.0f)
                 }
+
+                val mCur = db.rawQuery("SELECT mood FROM mood_logs WHERE date = ? LIMIT 1", arrayOf(todayStr))
+                if (mCur.moveToFirst()) mood = mCur.getString(0) ?: mood
                 mCur.close()
 
                 val fCur = db.rawQuery("SELECT value FROM settings WHERE key = 'streakFreezeTokens' LIMIT 1", null)
-                if (fCur.moveToFirst()) {
-                    freezeTokens = fCur.getString(0)?.toIntOrNull() ?: 2
-                }
+                if (fCur.moveToFirst()) freezeTokens = fCur.getString(0)?.toIntOrNull() ?: 2
                 fCur.close()
                 db.close()
 
@@ -160,6 +200,9 @@ object TaskifyAllWidgets {
             }
         } catch (_: Exception) {}
 
+        val maxCat = (catDoneMap.values.maxOrNull() ?: 1).coerceAtLeast(1)
+        val catBars = catDoneMap.entries.map { it.key to (it.value.toFloat() / maxCat.toFloat()).coerceIn(0.15f, 1.0f) }
+
         return LiveSnapshot(
             appTitle = appTitle,
             done = done,
@@ -174,7 +217,100 @@ object TaskifyAllWidgets {
             nextTask = nextTask,
             tasks = tasks,
             freezeTokens = freezeTokens,
+            weekBars = weekBars,
+            catBars = catBars,
         )
+    }
+
+    private fun drawRingBitmap(pct: Int, c1: Int, c2: Int, centerText: String): Bitmap {
+        val size = 220
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val stroke = 20f
+        val rect = RectF(stroke, stroke, size - stroke, size - stroke)
+
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = stroke
+            color = Color.argb(45, 255, 255, 255)
+        }
+        canvas.drawOval(rect, bgPaint)
+
+        val fgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = stroke
+            strokeCap = Paint.Cap.ROUND
+            shader = LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), c1, c2, Shader.TileMode.CLAMP)
+        }
+        val sweep = (360f * pct.coerceIn(0, 100)) / 100f
+        canvas.drawArc(rect, -90f, sweep.coerceAtLeast(8f), false, fgPaint)
+
+        val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 44f
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText(centerText, size / 2f, size / 2f + 15f, txtPaint)
+        return bmp
+    }
+
+    private fun drawBarChartBitmap(bars: List<Float>, labels: List<String>, c1: Int, c2: Int): Bitmap {
+        val w = 480
+        val h = 150
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val count = bars.size.coerceAtLeast(1)
+        val slotW = w.toFloat() / count
+        val barW = slotW * 0.52f
+        val topPad = 12f
+        val bottomPad = 28f
+        val maxH = h - topPad - bottomPad
+
+        val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(35, 255, 255, 255) }
+        val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(200, 167, 176, 192)
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+
+        for (i in 0 until count) {
+            val cx = i * slotW + slotW / 2f
+            val left = cx - barW / 2f
+            val right = cx + barW / 2f
+            val trackRect = RectF(left, topPad, right, topPad + maxH)
+            canvas.drawRoundRect(trackRect, 12f, 12f, trackPaint)
+
+            val bh = maxH * bars[i].coerceIn(0.1f, 1.0f)
+            val barRect = RectF(left, topPad + maxH - bh, right, topPad + maxH)
+            val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(left, barRect.top, right, barRect.bottom, c1, c2, Shader.TileMode.CLAMP)
+            }
+            canvas.drawRoundRect(barRect, 12f, 12f, barPaint)
+
+            if (i < labels.size) {
+                canvas.drawText(labels[i], cx, h - 6f, txtPaint)
+            }
+        }
+        return bmp
+    }
+
+    private fun drawOrbBitmap(): Bitmap {
+        val size = 200
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(90, 34, 211, 238)
+        }
+        canvas.drawCircle(size / 2f, size / 2f, 88f, glow)
+        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(20f, 20f, 180f, 180f, Color.parseColor("#8B5CF6"), Color.parseColor("#22D3EE"), Shader.TileMode.CLAMP)
+        }
+        canvas.drawCircle(size / 2f, size / 2f, 64f, core)
+        val hi = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(110, 255, 255, 255) }
+        canvas.drawCircle(size / 2f - 16f, size / 2f - 16f, 22f, hi)
+        return bmp
     }
 
     fun completeTopPendingTaskInDb(context: Context) {
@@ -206,9 +342,7 @@ object TaskifyAllWidgets {
     }
 
     fun updateAll(context: Context) {
-        for (no in 1..42) {
-            updateOne(context, no)
-        }
+        for (no in 1..42) updateOne(context, no)
     }
 
     fun updateOne(context: Context, no: Int) {
@@ -217,9 +351,7 @@ object TaskifyAllWidgets {
             val clsName = "${context.packageName}.TaskifyWidget${no.toString().padStart(2, '0')}"
             val cls = Class.forName(clsName)
             val ids = mgr.getAppWidgetIds(ComponentName(context, cls))
-            for (id in ids) {
-                bind(context, mgr, id, no)
-            }
+            for (id in ids) bind(context, mgr, id, no)
         } catch (_: Exception) {}
     }
 
@@ -228,24 +360,12 @@ object TaskifyAllWidgets {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("widget_action", actionKey)
         } ?: Intent()
-        return PendingIntent.getActivity(
-            context,
-            reqCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        return PendingIntent.getActivity(context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
     private fun broadcastPending(context: Context, reqCode: Int, action: String): PendingIntent {
-        val intent = Intent(context, TaskifyWidgetActionReceiver::class.java).apply {
-            this.action = action
-        }
-        return PendingIntent.getBroadcast(
-            context,
-            reqCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val intent = Intent(context, TaskifyWidgetActionReceiver::class.java).apply { this.action = action }
+        return PendingIntent.getBroadcast(context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
     fun bind(context: Context, mgr: AppWidgetManager, appWidgetId: Int, no: Int) {
@@ -272,68 +392,77 @@ object TaskifyAllWidgets {
             val resId = context.resources.getIdentifier(idName, "id", pkg)
             if (resId != 0) views.setTextViewText(resId, value)
         }
-
         fun setProg(progress: Int) {
             val resId = context.resources.getIdentifier("wg_progress", "id", pkg)
             if (resId != 0) views.setProgressBar(resId, 100, progress.coerceIn(0, 100), false)
         }
-
+        fun setBmp(bmp: Bitmap) {
+            val resId = context.resources.getIdentifier("wg_canvas", "id", pkg)
+            if (resId != 0) views.setImageViewBitmap(resId, bmp)
+        }
         fun setClickAction(idName: String, reqCode: Int, actionKey: String) {
             val resId = context.resources.getIdentifier(idName, "id", pkg)
             if (resId != 0) views.setOnClickPendingIntent(resId, launchPending(context, reqCode, actionKey))
         }
-
         fun setBroadcastAction(idName: String, reqCode: Int, broadcastAct: String) {
             val resId = context.resources.getIdentifier(idName, "id", pkg)
             if (resId != 0) views.setOnClickPendingIntent(resId, broadcastPending(context, reqCode, broadcastAct))
         }
 
+        val cCyan = Color.parseColor("#22D3EE")
+        val cViolet = Color.parseColor("#8B5CF6")
+        val cEmerald = Color.parseColor("#34D399")
+        val cAmber = Color.parseColor("#FBBF24")
+        val cRose = Color.parseColor("#FB7185")
+        val weekLabels = listOf("M", "T", "W", "T", "F", "S", "S")
+        val catLabels = snap.catBars.map { it.first }
+        val catVals = snap.catBars.map { it.second }
+
         when (no) {
-            1 -> { setTxt("wg_title", "TODAY PROGRESS"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done} of ${snap.total} done"); setProg(pct) }
-            2 -> { setTxt("wg_title", "FIRE STREAK"); setTxt("wg_big", "🔥 ${snap.streak}"); setTxt("wg_sub", "Day${if (snap.streak == 1) "" else "s"} active") }
+            1 -> { setTxt("wg_title", "TODAY PROGRESS"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done} of ${snap.total} done"); setBmp(drawRingBitmap(pct, cCyan, cViolet, "$pct%")) }
+            2 -> { setTxt("wg_title", "FIRE STREAK"); setTxt("wg_big", "🔥 ${snap.streak}"); setTxt("wg_sub", "Days active"); setProg((snap.streak * 10).coerceIn(10, 100)) }
             3 -> { setTxt("wg_title", "${snap.appTitle} • ${snap.done}/${snap.total}"); setTxt("wg_badge", "🔥 ${snap.streak}d"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setProg(pct) }
             4 -> { setTxt("wg_title", "NEXT UP"); setTxt("wg_big", "⏳"); setTxt("wg_sub", snap.nextTask) }
-            5 -> { setTxt("wg_title", "FOCUS TIMER"); setTxt("wg_big", "25:00"); setTxt("wg_sub", "▶ Start Focus") }
-            6 -> { setTxt("wg_title", "STUDY TODAY"); setTxt("wg_big", studyTxt); setTxt("wg_sub", "Completed Study"); setProg(((snap.studyMins * 100) / 240).coerceIn(0, 100)) }
-            7 -> { setTxt("wg_title", "Weekly Insights"); setTxt("wg_badge", "${snap.weeklyPct}%"); setTxt("wg_line1", "Done: ${snap.done} • Left: ${snap.pending}"); setTxt("wg_line2", "Study: $studyTxt • Streak: ${snap.streak}d"); setProg(snap.weeklyPct) }
-            8 -> { setTxt("wg_title", "MONTHLY SCORE"); setTxt("wg_big", "${snap.monthlyPct}%"); setTxt("wg_sub", "Consistency"); setProg(snap.monthlyPct) }
-            9 -> { setTxt("wg_title", "Category Stats"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Study: $studyTxt"); setTxt("wg_line2", "Done: ${snap.done} • Pending: ${snap.pending}"); setTxt("wg_line3", "Mood: ${snap.mood}"); setProg(pct) }
+            5 -> { setTxt("wg_title", "FOCUS TIMER"); setTxt("wg_big", "25:00"); setTxt("wg_sub", "▶ Start Focus"); setBmp(drawRingBitmap(100, cCyan, cEmerald, "25m")) }
+            6 -> { setTxt("wg_title", "STUDY TODAY"); setTxt("wg_big", studyTxt); setTxt("wg_sub", "Completed Study"); setBmp(drawBarChartBitmap(catVals, catLabels, cViolet, cCyan)) }
+            7 -> { setTxt("wg_title", "Weekly Bar Chart"); setTxt("wg_badge", "${snap.weeklyPct}%"); setTxt("wg_line1", "Done: ${snap.done} • Left: ${snap.pending}"); setTxt("wg_line2", "Study: $studyTxt • Streak: ${snap.streak}d"); setProg(snap.weeklyPct); setBmp(drawBarChartBitmap(snap.weekBars, weekLabels, cCyan, cViolet)) }
+            8 -> { setTxt("wg_title", "MONTHLY RING"); setTxt("wg_big", "${snap.monthlyPct}%"); setTxt("wg_sub", "Consistency"); setBmp(drawRingBitmap(snap.monthlyPct, cEmerald, cCyan, "${snap.monthlyPct}%")) }
+            9 -> { setTxt("wg_title", "Category Columns"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: ${snap.mood}"); setTxt("wg_line2", "Done: ${snap.done} • Pending: ${snap.pending}"); setProg(pct); setBmp(drawBarChartBitmap(catVals, catLabels, cEmerald, cCyan)) }
             10 -> { setTxt("wg_title", "+ Add Task"); setTxt("wg_badge", "Quick") }
-            11 -> { setTxt("wg_title", "VOICE AI ORB"); setTxt("wg_big", "🎙️ Orb"); setTxt("wg_sub", "Offline & API") }
+            11 -> { setTxt("wg_title", "VOICE AI ORB"); setTxt("wg_big", "🎙️ Orb"); setTxt("wg_sub", "Offline & API"); setBmp(drawOrbBitmap()) }
             12 -> { setTxt("wg_title", "Ask Offline AI..."); setTxt("wg_badge", "⚡ Ask") }
-            13 -> { setTxt("wg_title", "MOOD & ENERGY"); setTxt("wg_big", "⚡ ${snap.mood}"); setTxt("wg_sub", "Today's Vibe"); setProg(80) }
-            14 -> { setTxt("wg_title", "CALENDAR"); setTxt("wg_big", SimpleDateFormat("dd", Locale.getDefault()).format(Date())); setTxt("wg_sub", dateStr) }
-            15 -> { setTxt("wg_title", "OVERDUE"); setTxt("wg_big", "⚠️ ${snap.overdue}"); setTxt("wg_sub", if (snap.overdue == 0) "All on track!" else "Tap to Fix") }
+            13 -> { setTxt("wg_title", "MOOD & ENERGY"); setTxt("wg_big", "⚡ ${snap.mood}"); setTxt("wg_sub", "Today's Vibe"); setProg(85) }
+            14 -> { setTxt("wg_title", "CALENDAR"); setTxt("wg_big", SimpleDateFormat("dd", Locale.getDefault()).format(Date())); setTxt("wg_sub", dateStr); setBmp(drawRingBitmap(pct, cCyan, cViolet, SimpleDateFormat("dd", Locale.getDefault()).format(Date()))) }
+            15 -> { setTxt("wg_title", "OVERDUE"); setTxt("wg_big", "⚠️ ${snap.overdue}"); setTxt("wg_sub", if (snap.overdue == 0) "All on track!" else "Tap to Fix"); setProg(if (snap.overdue == 0) 100 else 35) }
             16 -> { setTxt("wg_title", "SPACED REVISION"); setTxt("wg_big", "1·3·7·21"); setTxt("wg_sub", "Revision Ready"); setProg(pct) }
             17 -> { setTxt("wg_title", "Morning Briefing"); setTxt("wg_badge", dateStr); setTxt("wg_line1", "Progress: $pct% (${snap.done}/${snap.total})"); setTxt("wg_line2", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setTxt("wg_line3", "Next: ${snap.nextTask}"); setProg(pct) }
-            18 -> { setTxt("wg_title", "HABITS"); setTxt("wg_big", "${snap.done}/${snap.total}"); setTxt("wg_sub", "$pct% Complete"); setProg(pct) }
+            18 -> { setTxt("wg_title", "HABITS"); setTxt("wg_big", "${snap.done}/${snap.total}"); setTxt("wg_sub", "$pct% Daily"); setBmp(drawRingBitmap(pct, cEmerald, cViolet, "${snap.done}/${snap.total}")) }
             19 -> { setTxt("wg_title", "Daily Motivation"); setTxt("wg_badge", "✨"); setTxt("wg_line1", "Done is better than perfect."); setTxt("wg_line2", "Keep your ${snap.streak}d streak alive!") }
             20 -> { setTxt("wg_title", "STREAK SHIELD"); setTxt("wg_big", "🛡️ ${snap.freezeTokens}"); setTxt("wg_sub", "Freeze Tokens") }
             21 -> { setTxt("wg_big", "🔥${snap.streak}"); setTxt("wg_sub", "Streak") }
-            22 -> { setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done}/${snap.total}") }
+            22 -> { setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done}/${snap.total}"); setBmp(drawRingBitmap(pct, cCyan, cViolet, "$pct%")) }
             23 -> { setTxt("wg_big", studyTxt); setTxt("wg_sub", "Study") }
             24 -> { setTxt("wg_big", "${snap.overdue}"); setTxt("wg_sub", "Overdue") }
             25 -> { setTxt("wg_title", "${snap.appTitle} • $pct% (${snap.done}/${snap.total})"); setTxt("wg_badge", "🔥 ${snap.streak}d"); setProg(pct) }
             26 -> { setTxt("wg_title", "Next: ${snap.nextTask}"); setTxt("wg_badge", "⏳") }
             27 -> { setTxt("wg_title", "Today Agenda (${snap.done}/${snap.total})"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setTxt("wg_line4", t4); setTxt("wg_line5", t5); setProg(pct) }
-            28 -> { setTxt("wg_title", "Study & Focus Hub"); setTxt("wg_badge", studyTxt); setTxt("wg_line1", "Today: $pct% • Weekly: ${snap.weeklyPct}%"); setTxt("wg_line2", "Next: ${snap.nextTask}"); setTxt("wg_line3", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setTxt("wg_line4", "Mood: ${snap.mood} • Streak: ${snap.streak}d"); setProg(pct) }
-            29 -> { setTxt("wg_title", "DONE / LEFT"); setTxt("wg_big", "${snap.done} / ${snap.pending}"); setTxt("wg_sub", "$pct% Complete"); setProg(pct) }
-            30 -> { setTxt("wg_title", "DEEP WORK"); setTxt("wg_big", "🎯 50m"); setTxt("wg_sub", studyTxt); setProg(((snap.studyMins * 100) / 240).coerceIn(0, 100)) }
-            31 -> { setTxt("wg_title", "POMODORO"); setTxt("wg_big", "25 / 5"); setTxt("wg_sub", "Study Cycle") }
-            32 -> { setTxt("wg_title", "LONG FOCUS"); setTxt("wg_big", "50 / 10"); setTxt("wg_sub", "Study Cycle") }
-            33 -> { setTxt("wg_title", "Night Review"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Completed: ${snap.done} tasks"); setTxt("wg_line2", "Remaining: ${snap.pending} tasks"); setProg(pct) }
-            34 -> { setTxt("wg_title", "DAILY TARGET"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "Goal: 80%"); setProg(pct) }
+            28 -> { setTxt("wg_title", "Study & Column Hub"); setTxt("wg_badge", studyTxt); setTxt("wg_line1", "Today: $pct% • Weekly: ${snap.weeklyPct}%"); setTxt("wg_line2", "Next: ${snap.nextTask}"); setTxt("wg_line3", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setProg(pct); setBmp(drawBarChartBitmap(snap.weekBars, weekLabels, cViolet, cCyan)) }
+            29 -> { setTxt("wg_title", "DONE / LEFT"); setTxt("wg_big", "${snap.done} / ${snap.pending}"); setTxt("wg_sub", "$pct% Complete"); setBmp(drawBarChartBitmap(listOf((snap.done.coerceAtLeast(1)).toFloat() / snap.total.coerceAtLeast(1), (snap.pending.coerceAtLeast(1)).toFloat() / snap.total.coerceAtLeast(1)), listOf("Done", "Left"), cEmerald, cRose)) }
+            30 -> { setTxt("wg_title", "DEEP WORK"); setTxt("wg_big", "🎯 50m"); setTxt("wg_sub", studyTxt); setBmp(drawRingBitmap(((snap.studyMins * 100) / 240).coerceIn(10, 100), cViolet, cCyan, "50m")) }
+            31 -> { setTxt("wg_title", "POMODORO"); setTxt("wg_big", "25 / 5"); setTxt("wg_sub", "Study Cycle"); setBmp(drawRingBitmap(80, cCyan, cViolet, "25/5")) }
+            32 -> { setTxt("wg_title", "LONG FOCUS"); setTxt("wg_big", "50 / 10"); setTxt("wg_sub", "Study Cycle"); setBmp(drawRingBitmap(85, cEmerald, cCyan, "50/10")) }
+            33 -> { setTxt("wg_title", "Night Review Chart"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Completed: ${snap.done} • Left: ${snap.pending}"); setProg(pct); setBmp(drawBarChartBitmap(catVals, catLabels, cAmber, cRose)) }
+            34 -> { setTxt("wg_title", "DAILY TARGET"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "Goal: 80%"); setBmp(drawRingBitmap(pct, cAmber, cRose, "$pct%")) }
             35 -> { setTxt("wg_title", "Next: ${snap.nextTask}"); setTxt("wg_badge", "${snap.overdue} due") }
             36 -> { setTxt("wg_title", "✨ API AI"); setTxt("wg_badge", "Open") }
             37 -> { setTxt("wg_title", "🌐 DeepSeek"); setTxt("wg_badge", "Web") }
-            38 -> { setTxt("wg_title", "${snap.appTitle} Command"); setTxt("wg_badge", "🔥 ${snap.streak}d • $pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: ${snap.mood}"); setTxt("wg_line2", t1); setTxt("wg_line3", t2); setTxt("wg_line4", t3); setTxt("wg_line5", "Weekly: ${snap.weeklyPct}% • Overdue: ${snap.overdue}"); setProg(pct) }
-            39 -> { setTxt("wg_title", "COMPLETED"); setTxt("wg_big", "🏆 ${snap.done}"); setTxt("wg_sub", "Out of ${snap.total}"); setProg(pct) }
+            38 -> { setTxt("wg_title", "${snap.appTitle} Command"); setTxt("wg_badge", "🔥 ${snap.streak}d • $pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: ${snap.mood}"); setTxt("wg_line2", t1); setTxt("wg_line3", t2); setTxt("wg_line4", t3); setTxt("wg_line5", "Weekly: ${snap.weeklyPct}% • Overdue: ${snap.overdue}"); setProg(pct); setBmp(drawBarChartBitmap(snap.weekBars, weekLabels, cCyan, cEmerald)) }
+            39 -> { setTxt("wg_title", "COMPLETED"); setTxt("wg_big", "🏆 ${snap.done}"); setTxt("wg_sub", "Out of ${snap.total}"); setBmp(drawBarChartBitmap(catVals, catLabels, cEmerald, cCyan)) }
             40 -> { setTxt("wg_title", "$dateStr • ${snap.mood}"); setTxt("wg_badge", "$pct%") }
             41 -> { setTxt("wg_title", "⚡ Offline AI Control"); setTxt("wg_badge", "Streak ${snap.streak}d"); setTxt("wg_line1", "Pending: ${snap.pending} • Done: ${snap.done} • Instant Offline AI") }
             42 -> { setTxt("wg_title", "✨ API AI Control"); setTxt("wg_badge", "$pct% Today"); setTxt("wg_line1", "Gemini & DeepSeek • Full App Control") }
         }
 
-        // Default deep-link action based on widget category
         val rootAction = when (no) {
             5, 30, 31, 32 -> "focus_timer"
             6, 7, 8, 9, 23 -> "stats"
@@ -346,8 +475,6 @@ object TaskifyAllWidgets {
             else -> "today"
         }
         setClickAction("wg_root", 100 + no, rootAction)
-
-        // Wire interactive buttons directly on widgets
         setBroadcastAction("wg_btn_done", 200 + no, ACTION_COMPLETE_TOP)
         setBroadcastAction("wg_btn_sync", 300 + no, ACTION_SYNC)
         setClickAction("wg_btn_add", 400 + no, "add_task")

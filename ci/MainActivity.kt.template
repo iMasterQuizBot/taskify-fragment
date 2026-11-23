@@ -26,14 +26,28 @@ import java.util.concurrent.Executors
 
 class MainActivity : FlutterFragmentActivity() {
     private var targetHz: Float = 120f
+    private var pendingWidgetAction: String? = null
+    private var widgetMethodChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingWidgetAction = intent?.getStringExtra("widget_action")
         window.setFlags(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         )
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         applyRefreshRate(targetHz)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val act = intent.getStringExtra("widget_action")
+        if (act != null) {
+            pendingWidgetAction = act
+            widgetMethodChannel?.invokeMethod("onAction", act)
+        }
     }
 
     override fun onResume() {
@@ -169,10 +183,14 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
 
-        // 5) Android Home Screen Apple-Glass Widget अपडेट करना
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taskify/widget")
-            .setMethodCallHandler { call, result ->
-                if (call.method == "updateWidget") {
+        // 5) Android Home Screen Apple-Glass Widget अपडेट करना व Deep-Link Actions भेजना
+        widgetMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taskify/widget")
+        widgetMethodChannel?.setMethodCallHandler { call, result ->
+                if (call.method == "getInitialAction") {
+                    val act = pendingWidgetAction
+                    pendingWidgetAction = null
+                    result.success(act)
+                } else if (call.method == "updateWidget") {
                     try {
                         val prefs = getSharedPreferences(TaskifyAllWidgets.PREFS, MODE_PRIVATE)
                         val tasks = call.argument<List<String>>("tasks") ?: emptyList()

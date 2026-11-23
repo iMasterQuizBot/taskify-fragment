@@ -3,10 +3,14 @@ package __PKG__
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.database.sqlite.SQLiteDatabase
 import android.widget.RemoteViews
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -23,11 +27,186 @@ open class TaskifyBaseWidgetProvider(private val widgetNo: Int) : AppWidgetProvi
     }
 }
 
+class TaskifyWidgetActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            TaskifyAllWidgets.ACTION_COMPLETE_TOP -> {
+                TaskifyAllWidgets.completeTopPendingTaskInDb(context)
+                TaskifyAllWidgets.updateAll(context)
+            }
+            TaskifyAllWidgets.ACTION_SYNC -> {
+                TaskifyAllWidgets.updateAll(context)
+            }
+        }
+    }
+}
+
 object TaskifyAllWidgets {
     const val PREFS = "taskify_widget_prefs"
+    const val ACTION_COMPLETE_TOP = "__PKG__.ACTION_COMPLETE_TOP"
+    const val ACTION_SYNC = "__PKG__.ACTION_SYNC"
+
+    private data class LiveSnapshot(
+        val appTitle: String,
+        val done: Int,
+        val total: Int,
+        val streak: Int,
+        val studyMins: Int,
+        val overdue: Int,
+        val pending: Int,
+        val weeklyPct: Int,
+        val monthlyPct: Int,
+        val mood: String,
+        val nextTask: String,
+        val tasks: List<String>,
+        val freezeTokens: Int,
+    )
+
+    private fun readLiveSnapshot(context: Context): LiveSnapshot {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val appTitle = prefs.getString("title", "Taskifyy") ?: "Taskifyy"
+        var done = prefs.getInt("done", 0)
+        var total = prefs.getInt("total", 0)
+        var streak = prefs.getInt("streak", 0)
+        var studyMins = prefs.getInt("studyMins", 0)
+        var overdue = prefs.getInt("overdueCount", 0)
+        var pending = prefs.getInt("pendingCount", 0)
+        var weeklyPct = prefs.getInt("weeklyPct", 0)
+        var monthlyPct = prefs.getInt("monthlyPct", 0)
+        var mood = prefs.getString("mood", "Focused") ?: "Focused"
+        var nextTask = prefs.getString("nextTask", "No upcoming task") ?: "No upcoming task"
+        var tasks = listOf(
+            prefs.getString("task1", "Open Taskifyy to add tasks") ?: "",
+            prefs.getString("task2", "") ?: "",
+            prefs.getString("task3", "") ?: "",
+            prefs.getString("task4", "") ?: "",
+            prefs.getString("task5", "") ?: "",
+        )
+        var freezeTokens = 2
+
+        try {
+            val dbFile = context.getDatabasePath("my_daily_routine.db")
+            if (dbFile.exists()) {
+                val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                val cal = Calendar.getInstance()
+                val nowMins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+
+                var dCount = 0
+                var tCount = 0
+                var pCount = 0
+                var oCount = 0
+                var sMins = 0
+                val pList = mutableListOf<String>()
+
+                val c = db.rawQuery(
+                    "SELECT title, startMinutes, endMinutes, category, status FROM tasks WHERE date = ? ORDER BY startMinutes ASC, id ASC",
+                    arrayOf(todayStr)
+                )
+                while (c.moveToNext()) {
+                    val title = c.getString(0) ?: ""
+                    val startM = c.getInt(1)
+                    val endM = if (c.isNull(2)) null else c.getInt(2)
+                    val cat = (c.getString(3) ?: "").lowercase(Locale.US)
+                    val status = c.getString(4) ?: "pending"
+
+                    if (status == "skipped") continue
+                    tCount++
+                    if (status == "completed") {
+                        dCount++
+                        if (cat == "study" || cat == "learning") {
+                            val dur = (endM ?: (startM + 60)) - startM
+                            if (dur > 0) sMins += dur
+                        }
+                    } else if (status == "pending") {
+                        pCount++
+                        val endCheck = endM ?: startM
+                        if (nowMins > endCheck) oCount++
+                        if (pList.size < 5) {
+                            pList.add("${formatMins(startM)} • $title")
+                        }
+                    }
+                }
+                c.close()
+
+                val mCur = db.rawQuery("SELECT mood FROM mood_logs WHERE date = ? LIMIT 1", arrayOf(todayStr))
+                if (mCur.moveToFirst()) {
+                    mood = mCur.getString(0) ?: mood
+                }
+                mCur.close()
+
+                val fCur = db.rawQuery("SELECT value FROM settings WHERE key = 'streakFreezeTokens' LIMIT 1", null)
+                if (fCur.moveToFirst()) {
+                    freezeTokens = fCur.getString(0)?.toIntOrNull() ?: 2
+                }
+                fCur.close()
+                db.close()
+
+                done = dCount
+                total = tCount
+                pending = pCount
+                overdue = oCount
+                studyMins = sMins
+                if (pList.isNotEmpty()) {
+                    nextTask = pList.first()
+                    tasks = List(5) { idx -> pList.getOrElse(idx) { "" } }
+                } else if (tCount > 0) {
+                    nextTask = "All tasks completed!"
+                    tasks = listOf("🏆 All tasks completed today!", "", "", "", "")
+                }
+                val pctNow = if (total == 0) 0 else (done * 100) / total
+                if (weeklyPct == 0) weeklyPct = pctNow
+                if (monthlyPct == 0) monthlyPct = pctNow
+            }
+        } catch (_: Exception) {}
+
+        return LiveSnapshot(
+            appTitle = appTitle,
+            done = done,
+            total = total,
+            streak = streak,
+            studyMins = studyMins,
+            overdue = overdue,
+            pending = pending,
+            weeklyPct = weeklyPct,
+            monthlyPct = monthlyPct,
+            mood = mood,
+            nextTask = nextTask,
+            tasks = tasks,
+            freezeTokens = freezeTokens,
+        )
+    }
+
+    fun completeTopPendingTaskInDb(context: Context) {
+        try {
+            val dbFile = context.getDatabasePath("my_daily_routine.db")
+            if (!dbFile.exists()) return
+            val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE)
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            val c = db.rawQuery(
+                "SELECT id FROM tasks WHERE date = ? AND status = 'pending' ORDER BY startMinutes ASC, id ASC LIMIT 1",
+                arrayOf(todayStr)
+            )
+            if (c.moveToFirst()) {
+                val id = c.getInt(0)
+                val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
+                db.execSQL("UPDATE tasks SET status = 'completed', updatedAt = ? WHERE id = ?", arrayOf(nowIso, id))
+            }
+            c.close()
+            db.close()
+        } catch (_: Exception) {}
+    }
+
+    private fun formatMins(minutes: Int): String {
+        val h24 = (minutes / 60) % 24
+        val m = minutes % 60
+        val ampm = if (h24 >= 12) "PM" else "AM"
+        val h12 = if (h24 % 12 == 0) 12 else h24 % 12
+        return String.format(Locale.US, "%02d:%02d %s", h12, m, ampm)
+    }
 
     fun updateAll(context: Context) {
-        for (no in 1..40) {
+        for (no in 1..42) {
             updateOne(context, no)
         }
     }
@@ -44,30 +223,43 @@ object TaskifyAllWidgets {
         } catch (_: Exception) {}
     }
 
-    fun bind(context: Context, mgr: AppWidgetManager, appWidgetId: Int, no: Int) {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val appTitle = prefs.getString("title", "Taskifyy") ?: "Taskifyy"
-        val done = prefs.getInt("done", 0)
-        val total = prefs.getInt("total", 0)
-        val streak = prefs.getInt("streak", 0)
-        val studyMins = prefs.getInt("studyMins", 0)
-        val overdue = prefs.getInt("overdueCount", 0)
-        val pending = prefs.getInt("pendingCount", 0)
-        val weeklyPct = prefs.getInt("weeklyPct", 0)
-        val monthlyPct = prefs.getInt("monthlyPct", 0)
-        val mood = prefs.getString("mood", "Focused") ?: "Focused"
-        val nextTask = prefs.getString("nextTask", "No upcoming task") ?: "No upcoming task"
-        val t1 = prefs.getString("task1", "Open Taskify to add tasks") ?: ""
-        val t2 = prefs.getString("task2", "") ?: ""
-        val t3 = prefs.getString("task3", "") ?: ""
-        val t4 = prefs.getString("task4", "") ?: ""
-        val t5 = prefs.getString("task5", "") ?: ""
+    private fun launchPending(context: Context, reqCode: Int, actionKey: String): PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("widget_action", actionKey)
+        } ?: Intent()
+        return PendingIntent.getActivity(
+            context,
+            reqCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
 
-        val pct = if (total == 0) 0 else (done * 100) / total
-        val studyH = studyMins / 60
-        val studyM = studyMins % 60
+    private fun broadcastPending(context: Context, reqCode: Int, action: String): PendingIntent {
+        val intent = Intent(context, TaskifyWidgetActionReceiver::class.java).apply {
+            this.action = action
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            reqCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    fun bind(context: Context, mgr: AppWidgetManager, appWidgetId: Int, no: Int) {
+        val snap = readLiveSnapshot(context)
+        val pct = if (snap.total == 0) 0 else (snap.done * 100) / snap.total
+        val studyH = snap.studyMins / 60
+        val studyM = snap.studyMins % 60
         val studyTxt = if (studyH > 0) "${studyH}h ${studyM}m" else "${studyM}m"
         val dateStr = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date())
+        val t1 = snap.tasks.getOrElse(0) { "" }
+        val t2 = snap.tasks.getOrElse(1) { "" }
+        val t3 = snap.tasks.getOrElse(2) { "" }
+        val t4 = snap.tasks.getOrElse(3) { "" }
+        val t5 = snap.tasks.getOrElse(4) { "" }
 
         val layoutName = "tg_layout_${no.toString().padStart(2, '0')}"
         val layoutId = context.resources.getIdentifier(layoutName, "layout", context.packageName)
@@ -75,66 +267,92 @@ object TaskifyAllWidgets {
 
         val views = RemoteViews(context.packageName, layoutId)
         val pkg = context.packageName
+
         fun setTxt(idName: String, value: String) {
             val resId = context.resources.getIdentifier(idName, "id", pkg)
             if (resId != 0) views.setTextViewText(resId, value)
         }
 
-        when (no) {
-            1 -> { setTxt("wg_title", "Today Progress"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "$done of $total done") }
-            2 -> { setTxt("wg_title", "Fire Streak"); setTxt("wg_big", "🔥 $streak"); setTxt("wg_sub", "Day${if (streak == 1) "" else "s"} Streak") }
-            3 -> { setTxt("wg_title", "$appTitle • $done/$total"); setTxt("wg_badge", "🔥 ${streak}d"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3) }
-            4 -> { setTxt("wg_title", "Next Up"); setTxt("wg_big", "⏳"); setTxt("wg_sub", nextTask) }
-            5 -> { setTxt("wg_title", "Focus Timer"); setTxt("wg_big", "25:00"); setTxt("wg_sub", "Tap to Start") }
-            6 -> { setTxt("wg_title", "Study Today"); setTxt("wg_big", studyTxt); setTxt("wg_sub", "Completed Study") }
-            7 -> { setTxt("wg_title", "Weekly Score"); setTxt("wg_badge", "$weeklyPct%"); setTxt("wg_line1", "Completed: $done • Pending: $pending"); setTxt("wg_line2", "Study: $studyTxt • Streak: ${streak}d") }
-            8 -> { setTxt("wg_title", "Monthly Score"); setTxt("wg_big", "$monthlyPct%"); setTxt("wg_sub", "Overall Consistency") }
-            9 -> { setTxt("wg_title", "Category Focus"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Study: $studyTxt"); setTxt("wg_line2", "Done: $done • Pending: $pending"); setTxt("wg_line3", "Mood: $mood") }
-            10 -> { setTxt("wg_title", "+ Add Task"); setTxt("wg_badge", "Quick") }
-            11 -> { setTxt("wg_title", "Voice AI"); setTxt("wg_big", "🎙️"); setTxt("wg_sub", "Offline & API") }
-            12 -> { setTxt("wg_title", "Ask Taskify AI..."); setTxt("wg_badge", "⚡ Offline") }
-            13 -> { setTxt("wg_title", "Mood & Energy"); setTxt("wg_big", "⚡"); setTxt("wg_sub", mood) }
-            14 -> { setTxt("wg_title", "Today"); setTxt("wg_big", SimpleDateFormat("dd", Locale.getDefault()).format(Date())); setTxt("wg_sub", dateStr) }
-            15 -> { setTxt("wg_title", "Overdue Alert"); setTxt("wg_big", "$overdue"); setTxt("wg_sub", if (overdue == 0) "All on track!" else "Tap to Fix") }
-            16 -> { setTxt("wg_title", "Spaced Revision"); setTxt("wg_big", "1·3·7·21"); setTxt("wg_sub", "Revision Ready") }
-            17 -> { setTxt("wg_title", "Daily Briefing"); setTxt("wg_badge", dateStr); setTxt("wg_line1", "Progress: $pct% ($done/$total)"); setTxt("wg_line2", "Pending: $pending • Overdue: $overdue"); setTxt("wg_line3", "Next: $nextTask") }
-            18 -> { setTxt("wg_title", "Habits"); setTxt("wg_big", "$done/$total"); setTxt("wg_sub", "Daily Target") }
-            19 -> { setTxt("wg_title", "Daily Motivation"); setTxt("wg_badge", "✨"); setTxt("wg_line1", "Done is better than perfect."); setTxt("wg_line2", "Keep your ${streak}d streak alive!") }
-            20 -> { setTxt("wg_title", "Streak Shield"); setTxt("wg_big", "🛡️"); setTxt("wg_sub", "Protected") }
-            // Additional 20 (Big, Small, Alternate)
-            21 -> { setTxt("wg_big", "🔥$streak"); setTxt("wg_sub", "Streak") }
-            22 -> { setTxt("wg_big", "$pct%"); setTxt("wg_sub", "$done/$total") }
-            23 -> { setTxt("wg_big", studyTxt); setTxt("wg_sub", "Study") }
-            24 -> { setTxt("wg_big", "$overdue"); setTxt("wg_sub", "Overdue") }
-            25 -> { setTxt("wg_title", "$appTitle • $pct% ($done/$total)"); setTxt("wg_badge", "🔥 ${streak}d") }
-            26 -> { setTxt("wg_title", "Next: $nextTask"); setTxt("wg_badge", "⏳") }
-            27 -> { setTxt("wg_title", "Today Agenda ($done/$total)"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setTxt("wg_line4", t4); setTxt("wg_line5", t5) }
-            28 -> { setTxt("wg_title", "Study & Focus Hub"); setTxt("wg_badge", studyTxt); setTxt("wg_line1", "Today Score: $pct% • Weekly: $weeklyPct%"); setTxt("wg_line2", "Next: $nextTask"); setTxt("wg_line3", "Pending: $pending • Overdue: $overdue"); setTxt("wg_line4", "Mood: $mood • Streak: ${streak}d") }
-            29 -> { setTxt("wg_title", "Done / Pending"); setTxt("wg_big", "$done / $pending"); setTxt("wg_sub", "$pct% Complete") }
-            30 -> { setTxt("wg_title", "Deep Work"); setTxt("wg_big", "🎯 50m"); setTxt("wg_sub", studyTxt) }
-            31 -> { setTxt("wg_title", "Pomodoro"); setTxt("wg_big", "25 / 5"); setTxt("wg_sub", "Study Cycle") }
-            32 -> { setTxt("wg_title", "Long Focus"); setTxt("wg_big", "50 / 10"); setTxt("wg_sub", "Study Cycle") }
-            33 -> { setTxt("wg_title", "Night Review"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Completed: $done tasks"); setTxt("wg_line2", "Remaining: $pending tasks") }
-            34 -> { setTxt("wg_title", "Daily Target"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "Goal: 80%") }
-            35 -> { setTxt("wg_title", "Priority: $nextTask"); setTxt("wg_badge", "$overdue due") }
-            36 -> { setTxt("wg_title", "API AI"); setTxt("wg_badge", "✨") }
-            37 -> { setTxt("wg_title", "DeepSeek Web"); setTxt("wg_badge", "🌐") }
-            38 -> { setTxt("wg_title", "$appTitle Mega Glass"); setTxt("wg_badge", "🔥 ${streak}d • $pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: $mood"); setTxt("wg_line2", t1); setTxt("wg_line3", t2); setTxt("wg_line4", t3); setTxt("wg_line5", "Weekly: $weeklyPct% • Monthly: $monthlyPct%") }
-            39 -> { setTxt("wg_title", "Completed Today"); setTxt("wg_big", "🏆 $done"); setTxt("wg_sub", "Out of $total") }
-            40 -> { setTxt("wg_title", "$dateStr • $mood"); setTxt("wg_badge", "$pct%") }
+        fun setProg(progress: Int) {
+            val resId = context.resources.getIdentifier("wg_progress", "id", pkg)
+            if (resId != 0) views.setProgressBar(resId, 100, progress.coerceIn(0, 100), false)
         }
 
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        if (launchIntent != null) {
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                no,
-                launchIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val rootId = context.resources.getIdentifier("wg_root", "id", pkg)
-            if (rootId != 0) views.setOnClickPendingIntent(rootId, pendingIntent)
+        fun setClickAction(idName: String, reqCode: Int, actionKey: String) {
+            val resId = context.resources.getIdentifier(idName, "id", pkg)
+            if (resId != 0) views.setOnClickPendingIntent(resId, launchPending(context, reqCode, actionKey))
         }
+
+        fun setBroadcastAction(idName: String, reqCode: Int, broadcastAct: String) {
+            val resId = context.resources.getIdentifier(idName, "id", pkg)
+            if (resId != 0) views.setOnClickPendingIntent(resId, broadcastPending(context, reqCode, broadcastAct))
+        }
+
+        when (no) {
+            1 -> { setTxt("wg_title", "TODAY PROGRESS"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done} of ${snap.total} done"); setProg(pct) }
+            2 -> { setTxt("wg_title", "FIRE STREAK"); setTxt("wg_big", "🔥 ${snap.streak}"); setTxt("wg_sub", "Day${if (snap.streak == 1) "" else "s"} active") }
+            3 -> { setTxt("wg_title", "${snap.appTitle} • ${snap.done}/${snap.total}"); setTxt("wg_badge", "🔥 ${snap.streak}d"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setProg(pct) }
+            4 -> { setTxt("wg_title", "NEXT UP"); setTxt("wg_big", "⏳"); setTxt("wg_sub", snap.nextTask) }
+            5 -> { setTxt("wg_title", "FOCUS TIMER"); setTxt("wg_big", "25:00"); setTxt("wg_sub", "▶ Start Focus") }
+            6 -> { setTxt("wg_title", "STUDY TODAY"); setTxt("wg_big", studyTxt); setTxt("wg_sub", "Completed Study"); setProg(((snap.studyMins * 100) / 240).coerceIn(0, 100)) }
+            7 -> { setTxt("wg_title", "Weekly Insights"); setTxt("wg_badge", "${snap.weeklyPct}%"); setTxt("wg_line1", "Done: ${snap.done} • Left: ${snap.pending}"); setTxt("wg_line2", "Study: $studyTxt • Streak: ${snap.streak}d"); setProg(snap.weeklyPct) }
+            8 -> { setTxt("wg_title", "MONTHLY SCORE"); setTxt("wg_big", "${snap.monthlyPct}%"); setTxt("wg_sub", "Consistency"); setProg(snap.monthlyPct) }
+            9 -> { setTxt("wg_title", "Category Stats"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Study: $studyTxt"); setTxt("wg_line2", "Done: ${snap.done} • Pending: ${snap.pending}"); setTxt("wg_line3", "Mood: ${snap.mood}"); setProg(pct) }
+            10 -> { setTxt("wg_title", "+ Add Task"); setTxt("wg_badge", "Quick") }
+            11 -> { setTxt("wg_title", "VOICE AI ORB"); setTxt("wg_big", "🎙️ Orb"); setTxt("wg_sub", "Offline & API") }
+            12 -> { setTxt("wg_title", "Ask Offline AI..."); setTxt("wg_badge", "⚡ Ask") }
+            13 -> { setTxt("wg_title", "MOOD & ENERGY"); setTxt("wg_big", "⚡ ${snap.mood}"); setTxt("wg_sub", "Today's Vibe"); setProg(80) }
+            14 -> { setTxt("wg_title", "CALENDAR"); setTxt("wg_big", SimpleDateFormat("dd", Locale.getDefault()).format(Date())); setTxt("wg_sub", dateStr) }
+            15 -> { setTxt("wg_title", "OVERDUE"); setTxt("wg_big", "⚠️ ${snap.overdue}"); setTxt("wg_sub", if (snap.overdue == 0) "All on track!" else "Tap to Fix") }
+            16 -> { setTxt("wg_title", "SPACED REVISION"); setTxt("wg_big", "1·3·7·21"); setTxt("wg_sub", "Revision Ready"); setProg(pct) }
+            17 -> { setTxt("wg_title", "Morning Briefing"); setTxt("wg_badge", dateStr); setTxt("wg_line1", "Progress: $pct% (${snap.done}/${snap.total})"); setTxt("wg_line2", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setTxt("wg_line3", "Next: ${snap.nextTask}"); setProg(pct) }
+            18 -> { setTxt("wg_title", "HABITS"); setTxt("wg_big", "${snap.done}/${snap.total}"); setTxt("wg_sub", "$pct% Complete"); setProg(pct) }
+            19 -> { setTxt("wg_title", "Daily Motivation"); setTxt("wg_badge", "✨"); setTxt("wg_line1", "Done is better than perfect."); setTxt("wg_line2", "Keep your ${snap.streak}d streak alive!") }
+            20 -> { setTxt("wg_title", "STREAK SHIELD"); setTxt("wg_big", "🛡️ ${snap.freezeTokens}"); setTxt("wg_sub", "Freeze Tokens") }
+            21 -> { setTxt("wg_big", "🔥${snap.streak}"); setTxt("wg_sub", "Streak") }
+            22 -> { setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done}/${snap.total}") }
+            23 -> { setTxt("wg_big", studyTxt); setTxt("wg_sub", "Study") }
+            24 -> { setTxt("wg_big", "${snap.overdue}"); setTxt("wg_sub", "Overdue") }
+            25 -> { setTxt("wg_title", "${snap.appTitle} • $pct% (${snap.done}/${snap.total})"); setTxt("wg_badge", "🔥 ${snap.streak}d"); setProg(pct) }
+            26 -> { setTxt("wg_title", "Next: ${snap.nextTask}"); setTxt("wg_badge", "⏳") }
+            27 -> { setTxt("wg_title", "Today Agenda (${snap.done}/${snap.total})"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setTxt("wg_line4", t4); setTxt("wg_line5", t5); setProg(pct) }
+            28 -> { setTxt("wg_title", "Study & Focus Hub"); setTxt("wg_badge", studyTxt); setTxt("wg_line1", "Today: $pct% • Weekly: ${snap.weeklyPct}%"); setTxt("wg_line2", "Next: ${snap.nextTask}"); setTxt("wg_line3", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setTxt("wg_line4", "Mood: ${snap.mood} • Streak: ${snap.streak}d"); setProg(pct) }
+            29 -> { setTxt("wg_title", "DONE / LEFT"); setTxt("wg_big", "${snap.done} / ${snap.pending}"); setTxt("wg_sub", "$pct% Complete"); setProg(pct) }
+            30 -> { setTxt("wg_title", "DEEP WORK"); setTxt("wg_big", "🎯 50m"); setTxt("wg_sub", studyTxt); setProg(((snap.studyMins * 100) / 240).coerceIn(0, 100)) }
+            31 -> { setTxt("wg_title", "POMODORO"); setTxt("wg_big", "25 / 5"); setTxt("wg_sub", "Study Cycle") }
+            32 -> { setTxt("wg_title", "LONG FOCUS"); setTxt("wg_big", "50 / 10"); setTxt("wg_sub", "Study Cycle") }
+            33 -> { setTxt("wg_title", "Night Review"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Completed: ${snap.done} tasks"); setTxt("wg_line2", "Remaining: ${snap.pending} tasks"); setProg(pct) }
+            34 -> { setTxt("wg_title", "DAILY TARGET"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "Goal: 80%"); setProg(pct) }
+            35 -> { setTxt("wg_title", "Next: ${snap.nextTask}"); setTxt("wg_badge", "${snap.overdue} due") }
+            36 -> { setTxt("wg_title", "✨ API AI"); setTxt("wg_badge", "Open") }
+            37 -> { setTxt("wg_title", "🌐 DeepSeek"); setTxt("wg_badge", "Web") }
+            38 -> { setTxt("wg_title", "${snap.appTitle} Command"); setTxt("wg_badge", "🔥 ${snap.streak}d • $pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: ${snap.mood}"); setTxt("wg_line2", t1); setTxt("wg_line3", t2); setTxt("wg_line4", t3); setTxt("wg_line5", "Weekly: ${snap.weeklyPct}% • Overdue: ${snap.overdue}"); setProg(pct) }
+            39 -> { setTxt("wg_title", "COMPLETED"); setTxt("wg_big", "🏆 ${snap.done}"); setTxt("wg_sub", "Out of ${snap.total}"); setProg(pct) }
+            40 -> { setTxt("wg_title", "$dateStr • ${snap.mood}"); setTxt("wg_badge", "$pct%") }
+            41 -> { setTxt("wg_title", "⚡ Offline AI Control"); setTxt("wg_badge", "Streak ${snap.streak}d"); setTxt("wg_line1", "Pending: ${snap.pending} • Done: ${snap.done} • Instant Offline AI") }
+            42 -> { setTxt("wg_title", "✨ API AI Control"); setTxt("wg_badge", "$pct% Today"); setTxt("wg_line1", "Gemini & DeepSeek • Full App Control") }
+        }
+
+        // Default deep-link action based on widget category
+        val rootAction = when (no) {
+            5, 30, 31, 32 -> "focus_timer"
+            6, 7, 8, 9, 23 -> "stats"
+            10 -> "add_task"
+            11 -> "voice_orb"
+            12, 41 -> "offline_ai"
+            14 -> "calendar"
+            36, 42 -> "api_ai"
+            37 -> "deepseek_web"
+            else -> "today"
+        }
+        setClickAction("wg_root", 100 + no, rootAction)
+
+        // Wire interactive buttons directly on widgets
+        setBroadcastAction("wg_btn_done", 200 + no, ACTION_COMPLETE_TOP)
+        setBroadcastAction("wg_btn_sync", 300 + no, ACTION_SYNC)
+        setClickAction("wg_btn_add", 400 + no, "add_task")
+        setClickAction("wg_btn_voice", 500 + no, "voice_orb")
+        setClickAction("wg_btn_chat", 600 + no, if (no == 41) "offline_ai" else "api_ai")
 
         mgr.updateAppWidget(appWidgetId, views)
     }
@@ -180,3 +398,5 @@ class TaskifyWidget37 : TaskifyBaseWidgetProvider(37)
 class TaskifyWidget38 : TaskifyBaseWidgetProvider(38)
 class TaskifyWidget39 : TaskifyBaseWidgetProvider(39)
 class TaskifyWidget40 : TaskifyBaseWidgetProvider(40)
+class TaskifyWidget41 : TaskifyBaseWidgetProvider(41)
+class TaskifyWidget42 : TaskifyBaseWidgetProvider(42)

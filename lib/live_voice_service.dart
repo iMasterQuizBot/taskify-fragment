@@ -78,6 +78,7 @@ class LiveVoiceService {
               'end_time': {'type': 'STRING', 'description': 'खत्म का समय HH:MM (वैकल्पिक)'},
               'category': {'type': 'STRING', 'description': 'Study, Work, Health, Exercise, Personal, Family, Learning, Other'},
               'priority': {'type': 'INTEGER', 'description': '1 से 4'},
+              'repeat_type': {'type': 'STRING', 'description': 'once, daily, alternate, weekdays, weekends, spaced'},
             },
             'required': ['title', 'start_time'],
           },
@@ -176,7 +177,7 @@ class LiveVoiceService {
         'systemInstruction': {
           'parts': [
             {
-              'text': 'तुम "$assistant" हो, Taskifyy ऐप का सहायक। टाइमज़ोन: भारत (IST, Asia/Kolkata, UTC+05:30)। आज की भारतीय तारीख़ $todayStr और अभी का भारतीय समय $timeStr24 ($timeStr12) है। हमेशा भारतीय समय (IST) में ही टास्क जोड़ें—कभी UTC/ग्लोबल टाइम न लें। '
+              'text': 'तुम "$assistant" हो, Taskifyy ऐप के अंदर का स्मार्ट सहायक और छात्र-मोटिवेटर। तुम्हें और Taskifyy को Dilkhush Chauhan (दिलखुश चौहान) ने डेवलप किया है—पूछने पर यही नाम बताओ। हमेशा यूज़र को मोटिवेट करते रहो। टाइमज़ोन: भारत (IST, UTC+05:30)। आज की भारतीय तारीख़ $todayStr और अभी का समय $timeStr24 ($timeStr12) है। हमेशा भारतीय समय (IST) में ही काम करो। '
                   'यूज़र की भाषा में छोटा, सहज जवाब दो। चिन्ह या markdown मत बोलो। '
                   'जब भी यूज़र टास्क जोड़ने, एडिट करने, पूरा करने या डिलीट करने को कहे, तो '
                   'हमेशा दिए गए tool (add_task, edit_task, complete_task, delete_task, list_tasks) '
@@ -249,6 +250,7 @@ class LiveVoiceService {
             endMinutes: end,
             category: (args['category'] ?? 'Other').toString(),
             priority: int.tryParse('${args['priority'] ?? 2}') ?? 2,
+            repeatType: (args['repeat_type'] ?? 'once').toString(),
             reminder: true,
           );
           onDatabaseChanged?.call();

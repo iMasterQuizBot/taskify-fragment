@@ -5,6 +5,8 @@ import 'ai_service.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
 import 'calendar_page.dart';
+import 'focus_timer_dialog.dart';
+import 'live_voice_screen.dart';
 import 'routines_page.dart';
 import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
@@ -35,6 +37,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   DateTime selectedDate = DateTime.now();
 
   OverlayEntry? _confettiEntry;
+  static const MethodChannel _widgetChannel = MethodChannel('taskify/widget');
 
   final GlobalKey<TodayPageState> todayKey = GlobalKey<TodayPageState>();
   final GlobalKey<CalendarPageState> calendarKey = GlobalKey<CalendarPageState>();
@@ -46,8 +49,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     pageController = PageController(initialPage: 0);
+    _widgetChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onAction' && call.arguments is String) {
+        _handleWidgetAction(call.arguments as String);
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AiService.warmUp(widget.db);
+      _checkInitialWidgetAction();
     });
   }
 
@@ -58,6 +67,62 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       FocusManager.instance.primaryFocus?.unfocus();
       SystemChannels.textInput.invokeMethod('TextInput.hide').catchError((_) {});
+      globalRefresh();
+    }
+  }
+
+  Future<void> _checkInitialWidgetAction() async {
+    try {
+      final act = await _widgetChannel.invokeMethod<String>('getInitialAction');
+      if (act != null && act.isNotEmpty) {
+        _handleWidgetAction(act);
+      }
+    } catch (_) {}
+  }
+
+  void _handleWidgetAction(String act) {
+    if (!mounted) return;
+    switch (act) {
+      case 'add_task':
+        pageController.jumpToPage(0);
+        Future.delayed(const Duration(milliseconds: 120), () {
+          todayKey.currentState?.addTask();
+        });
+        break;
+      case 'voice_orb':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LiveVoiceScreen(db: widget.db, onChanged: globalRefresh),
+          ),
+        );
+        break;
+      case 'offline_ai':
+        _openDeepSeek(initialTab: 0);
+        break;
+      case 'api_ai':
+        _openDeepSeek(initialTab: 1);
+        break;
+      case 'deepseek_web':
+        _openDeepSeek(initialTab: 2);
+        break;
+      case 'focus_timer':
+        showDialog(
+          context: context,
+          builder: (_) => const FocusTimerDialog(
+            taskTitle: 'Quick Focus',
+            initialStartMinutes: 360,
+          ),
+        );
+        break;
+      case 'calendar':
+        pageController.jumpToPage(1);
+        break;
+      case 'stats':
+        pageController.jumpToPage(2);
+        break;
+      default:
+        pageController.jumpToPage(0);
     }
   }
 
@@ -109,13 +174,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     pageController.animateToPage(0, duration: const Duration(milliseconds: 250), curve: Curves.easeInOut);
   }
 
-  void _openDeepSeek() {
+  void _openDeepSeek({int initialTab = 0}) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => DeepSeekWebScreen(
           db: widget.db,
           onDatabaseChanged: globalRefresh,
+          initialTab: initialTab,
         ),
       ),
     );

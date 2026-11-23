@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -10,6 +11,14 @@ import 'taskify_app.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   GestureBinding.instance.resamplingEnabled = true;
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('Handled async error: $error');
+    return true;
+  };
 
   final db = AppDatabase();
   await db.init();

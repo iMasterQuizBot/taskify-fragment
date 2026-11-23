@@ -5,8 +5,7 @@
     android:layout_height="match_parent"
     android:background="@drawable/tg_bg_emerald"
     android:orientation="vertical"
-    android:padding="13dp">
-
+    android:padding="11dp">
     <TextView
         android:id="@+id/wg_title"
         android:layout_width="match_parent"
@@ -15,39 +14,34 @@
         android:maxLines="1"
         android:text="MONTHLY"
         android:textColor="#A7B0C0"
-        android:textSize="10.5sp"
+        android:textSize="10sp"
         android:textStyle="bold" />
-
+    <ImageView
+        android:id="@+id/wg_canvas"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="4dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/tg_ring_preview" />
     <TextView
         android:id="@+id/wg_big"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:ellipsize="end"
-        android:maxLines="2"
+        android:maxLines="1"
         android:text="92%"
         android:textColor="#F8FAFC"
-        android:textSize="21sp"
+        android:textSize="16sp"
         android:textStyle="bold" />
-
     <TextView
         android:id="@+id/wg_sub"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
         android:ellipsize="end"
-        android:maxLines="2"
+        android:maxLines="1"
         android:text="Consistency"
         android:textColor="#22D3EE"
-        android:textSize="11sp"
+        android:textSize="10.5sp"
         android:textStyle="bold" />
-    <ProgressBar
-        android:id="@+id/wg_progress"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_marginTop="6dp"
-        android:max="100"
-        android:progress="78"
-        android:progressDrawable="@drawable/tg_prog_emerald" />
 </LinearLayout>

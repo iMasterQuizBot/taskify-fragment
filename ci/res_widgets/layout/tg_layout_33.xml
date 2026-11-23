@@ -6,13 +6,11 @@
     android:background="@drawable/tg_bg_violet"
     android:orientation="vertical"
     android:padding="13dp">
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-
         <TextView
             android:id="@+id/wg_title"
             android:layout_width="0dp"
@@ -24,7 +22,6 @@
             android:textColor="#F8FAFC"
             android:textSize="14sp"
             android:textStyle="bold" />
-
         <TextView
             android:id="@+id/wg_badge"
             android:layout_width="wrap_content"
@@ -43,18 +40,23 @@
         android:max="100"
         android:progress="78"
         android:progressDrawable="@drawable/tg_prog_violet" />
-
+    <ImageView
+        android:id="@+id/wg_canvas"
+        android:layout_width="match_parent"
+        android:layout_height="68dp"
+        android:layout_marginTop="6dp"
+        android:scaleType="fitXY"
+        android:src="@drawable/tg_chart_bars_preview" />
     <TextView
         android:id="@+id/wg_line1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="7dp"
+        android:layout_marginTop="6dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:text="Daily Wrap-up"
         android:textColor="#E2E8F0"
         android:textSize="12sp" />
-
     <TextView
         android:id="@+id/wg_line2"
         android:layout_width="match_parent"
@@ -65,7 +67,6 @@
         android:text=""
         android:textColor="#A7B0C0"
         android:textSize="11.5sp" />
-
     <TextView
         android:id="@+id/wg_line3"
         android:layout_width="match_parent"
@@ -76,7 +77,6 @@
         android:text=""
         android:textColor="#A7B0C0"
         android:textSize="11.5sp" />
-
     <TextView
         android:id="@+id/wg_line4"
         android:layout_width="match_parent"
@@ -87,7 +87,6 @@
         android:text=""
         android:textColor="#94A3B8"
         android:textSize="11sp" />
-
     <TextView
         android:id="@+id/wg_line5"
         android:layout_width="match_parent"

@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@drawable/tg_bg_violet"
     android:orientation="vertical"
-    android:padding="14dp">
+    android:padding="13dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -20,7 +20,7 @@
             android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="Taskify"
+            android:text="Night Review"
             android:textColor="#F8FAFC"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -29,20 +29,29 @@
             android:id="@+id/wg_badge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🔥 0d"
+            android:text="80%"
             android:textColor="#22D3EE"
             android:textSize="12sp"
             android:textStyle="bold" />
     </LinearLayout>
+    <ProgressBar
+        android:id="@+id/wg_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="6dp"
+        android:max="100"
+        android:progress="78"
+        android:progressDrawable="@drawable/tg_prog_violet" />
 
     <TextView
         android:id="@+id/wg_line1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="7dp"
         android:ellipsize="end"
         android:maxLines="1"
-        android:text="Open Taskify"
+        android:text="Daily Wrap-up"
         android:textColor="#E2E8F0"
         android:textSize="12sp" />
 
@@ -50,29 +59,29 @@
         android:id="@+id/wg_line2"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="3dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:text=""
         android:textColor="#A7B0C0"
-        android:textSize="12sp" />
+        android:textSize="11.5sp" />
 
     <TextView
         android:id="@+id/wg_line3"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="3dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:text=""
         android:textColor="#A7B0C0"
-        android:textSize="12sp" />
+        android:textSize="11.5sp" />
 
     <TextView
         android:id="@+id/wg_line4"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="3dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:text=""
@@ -83,7 +92,7 @@
         android:id="@+id/wg_line5"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="3dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:text=""

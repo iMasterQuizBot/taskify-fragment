@@ -13,31 +13,31 @@
         android:layout_height="wrap_content"
         android:ellipsize="end"
         android:maxLines="1"
-        android:text="Taskify"
+        android:text="FOCUS TIMER"
         android:textColor="#A7B0C0"
-        android:textSize="11sp"
+        android:textSize="10.5sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/wg_big"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="4dp"
         android:ellipsize="end"
         android:maxLines="2"
-        android:text="0%"
+        android:text="25:00"
         android:textColor="#F8FAFC"
-        android:textSize="22sp"
+        android:textSize="21sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/wg_sub"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="2dp"
         android:ellipsize="end"
         android:maxLines="2"
-        android:text="Ready"
+        android:text="▶ Start Focus"
         android:textColor="#22D3EE"
         android:textSize="11sp"
         android:textStyle="bold" />

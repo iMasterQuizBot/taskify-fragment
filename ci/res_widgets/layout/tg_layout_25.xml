@@ -5,31 +5,47 @@
     android:layout_height="match_parent"
     android:background="@drawable/tg_bg_pill"
     android:gravity="center_vertical"
-    android:orientation="horizontal"
+    android:orientation="vertical"
     android:paddingLeft="14dp"
     android:paddingRight="14dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp">
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
-    <TextView
-        android:id="@+id/wg_title"
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:text="Taskify"
-        android:textColor="#F8FAFC"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-    <TextView
-        android:id="@+id/wg_badge"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:text="✨"
-        android:textColor="#22D3EE"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        <TextView
+            android:id="@+id/wg_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Taskifyy • 78% (4/5)"
+            android:textColor="#F8FAFC"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/wg_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="🔥 14d"
+            android:textColor="#22D3EE"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+    <ProgressBar
+        android:id="@+id/wg_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="4dp"
+        android:max="100"
+        android:progress="78"
+        android:progressDrawable="@drawable/tg_prog_cyan" />
 </LinearLayout>

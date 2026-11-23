@@ -16,7 +16,7 @@ class AppDatabase {
 
     _db = await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tasks (
@@ -107,7 +107,7 @@ class AppDatabase {
         await db.insert('settings', {'key': 'streakTarget', 'value': '80'});
         await db.insert('settings', {'key': 'carryForward', 'value': '0'});
         await db.insert('settings', {'key': 'theme', 'value': 'dark'});
-        await db.insert('settings', {'key': 'appTitle', 'value': 'Taskify'});
+        await db.insert('settings', {'key': 'appTitle', 'value': 'Taskifyy'});
         await db.insert('settings', {'key': 'notificationLeadTime', 'value': '5'});
         await db.insert('settings', {'key': 'refreshRateMode', 'value': '120'});
         await db.insert('settings', {'key': 'streakFreezeTokens', 'value': '2'});
@@ -174,6 +174,11 @@ class AppDatabase {
               updatedAt TEXT NOT NULL
             )
           ''');
+        }
+        if (oldV < 10) {
+          try {
+            await db.update('settings', {'value': 'Taskifyy'}, where: "key = 'appTitle' AND value = 'Taskify'");
+          } catch (_) {}
         }
       },
     );

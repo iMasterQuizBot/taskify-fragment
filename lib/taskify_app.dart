@@ -19,7 +19,7 @@ class MyDailyRoutineApp extends StatefulWidget {
 
 class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
   ThemeMode themeMode = ThemeMode.dark;
-  String appTitle = 'Taskify';
+  String appTitle = 'Taskifyy';
   int notificationLeadTime = 5;
   String refreshRateMode = '120';
   bool isLocked = false;
@@ -44,7 +44,7 @@ class _MyDailyRoutineAppState extends State<MyDailyRoutineApp> {
 
     if (mounted) {
       setState(() {
-        appTitle = (savedTitle == null || savedTitle.trim().isEmpty) ? 'Taskify' : savedTitle.trim();
+        appTitle = (savedTitle == null || savedTitle.trim().isEmpty) ? 'Taskifyy' : savedTitle.trim();
         notificationLeadTime = int.tryParse(savedLead ?? '5') ?? 5;
         refreshRateMode = savedRefresh ?? '120';
         savedPin = pin ?? '';
@@ -316,7 +316,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
                 child: const Icon(Icons.lock_rounded, color: Colors.white, size: 28),
               ),
               const SizedBox(height: 16),
-              const Text('Taskify Locked', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+              const Text('Taskifyy Locked', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
               const Text('Enter your 4-digit security PIN', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               const SizedBox(height: 20),

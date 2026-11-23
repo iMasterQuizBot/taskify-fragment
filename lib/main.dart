@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -10,23 +11,31 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   GestureBinding.instance.resamplingEnabled = true;
 
+  final db = AppDatabase();
+  await db.init();
+
+  // ऐप को बिना किसी देरी के तुरंत खोलें (बाकी भारी काम बैकग्राउंड में होंगे)
+  runApp(FadeInApp(child: MyDailyRoutineApp(db: db)));
+
+  unawaited(_initBackgroundServices(db));
+}
+
+Future<void> _initBackgroundServices(AppDatabase db) async {
   try {
     await NotificationService.init();
   } catch (_) {}
-
-  final db = AppDatabase();
-  await db.init();
-  await SoundService.init(db);
-  await db.autoAllocateRollingHabits();
+  try {
+    await SoundService.init(db);
+  } catch (_) {}
+  try {
+    await db.autoAllocateRollingHabits();
+  } catch (_) {}
   try {
     await db.rescheduleAllReminders();
   } catch (_) {}
-
-  // FadeInApp के साथ ऐप शुरू करें
-  runApp(FadeInApp(child: MyDailyRoutineApp(db: db)));
 }
 
-// ऐप ओपन होते ही स्मूथनेस (Fade-in Effect) देने के लिए यह विजेट बनाया गया है
+/// ऐप ओपन होते ही तुरंत और स्मूथ (260ms) एंट्रेंस एनिमेशन
 class FadeInApp extends StatefulWidget {
   final Widget child;
   const FadeInApp({super.key, required this.child});
@@ -41,8 +50,7 @@ class _FadeInAppState extends State<FadeInApp> {
   @override
   void initState() {
     super.initState();
-    // 100ms बाद फेड-इन शुरू होगा
-    Future.delayed(const Duration(milliseconds: 100), () {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _opacity = 1.0);
     });
   }
@@ -51,8 +59,8 @@ class _FadeInAppState extends State<FadeInApp> {
   Widget build(BuildContext context) {
     return AnimatedOpacity(
       opacity: _opacity,
-      duration: const Duration(milliseconds: 800), // 800ms की स्मूथनेस
-      curve: Curves.easeInOut,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
       child: widget.child,
     );
   }

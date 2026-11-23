@@ -498,7 +498,7 @@ class _SettingsPageState extends State<SettingsPage> {
           controller: controller,
           autofocus: true,
           maxLength: 40,
-          decoration: const InputDecoration(labelText: 'Display name', hintText: 'Taskify'),
+          decoration: const InputDecoration(labelText: 'Display name', hintText: 'Taskifyy'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),

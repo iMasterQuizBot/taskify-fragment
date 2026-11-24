@@ -198,9 +198,18 @@ class SoundService {
     await db?.setSetting('tapHapticEnabled', v ? '1' : '0');
   }
 
+  static DateTime? _lastCreateHaptic;
+
   // ---- इवेंट साउंड ----
   /// किसी भी इवेंट पर साउंड + हल्का हैप्टिक। गलती हो तो चुपचाप छोड़ दें।
   static Future<void> play(String slotId) async {
+    if (slotId == 'taskCreated') {
+      final now = DateTime.now();
+      if (_lastCreateHaptic != null && now.difference(_lastCreateHaptic!).inMilliseconds < 500) {
+        return;
+      }
+      _lastCreateHaptic = now;
+    }
     if (hapticOn) {
       try {
         if (slotId == 'allCompleted') {
@@ -208,7 +217,7 @@ class SoundService {
         } else if (slotId == 'taskCompleted') {
           HapticFeedback.mediumImpact();
         } else if (slotId == 'taskCreated') {
-          HapticFeedback.lightImpact();
+          HapticFeedback.selectionClick();
         }
       } catch (_) {}
     }

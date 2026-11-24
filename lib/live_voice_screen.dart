@@ -33,6 +33,7 @@ class LiveVoiceScreen extends StatefulWidget {
 
 class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
   static const MethodChannel _bgChannel = MethodChannel('taskify/background');
+  static const MethodChannel _sttAudio = MethodChannel('taskify/stt_audio');
 
   late final LiveVoiceService _apiSvc = LiveVoiceService(
     db: widget.db,
@@ -105,6 +106,7 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
 
   Future<void> _stopCurrentMode() async {
     try {
+      await _sttAudio.invokeMethod('muteBeep');
       await _stt.stop();
     } catch (_) {}
     try {
@@ -204,6 +206,7 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
       });
     }
 
+    try { await _sttAudio.invokeMethod('muteBeep'); } catch (_) {}
     await _stt.listen(
       localeId: 'hi_IN',
       listenFor: const Duration(minutes: 2),
@@ -239,6 +242,7 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     }
 
     try {
+      await _sttAudio.invokeMethod('muteBeep');
       await _stt.stop();
     } catch (_) {}
     // थोड़ा सा इंतज़ार ताकि अंतिम शब्द result में आ जाएँ

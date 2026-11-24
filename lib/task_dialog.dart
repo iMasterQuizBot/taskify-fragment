@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'sound_service.dart';
 import 'helpers.dart';
 
 class TaskDialog extends StatefulWidget {
@@ -324,6 +326,7 @@ class _TaskDialogState extends State<TaskDialog> {
             reminder: reminder,
             subtasks: subtasksJson,
             attachmentPath: attach,
+            playSound: false,
           );
         }
       } else if (repeatType == 'daily') {
@@ -342,6 +345,7 @@ class _TaskDialogState extends State<TaskDialog> {
             reminder: reminder,
             subtasks: subtasksJson,
             attachmentPath: attach,
+            playSound: false,
           );
         }
       } else if (repeatType == 'weekdays') {
@@ -361,6 +365,7 @@ class _TaskDialogState extends State<TaskDialog> {
               reminder: reminder,
               subtasks: subtasksJson,
               attachmentPath: attach,
+              playSound: false,
             );
           }
         }
@@ -381,6 +386,7 @@ class _TaskDialogState extends State<TaskDialog> {
               reminder: reminder,
               subtasks: subtasksJson,
               attachmentPath: attach,
+              playSound: false,
             );
           }
         }
@@ -405,6 +411,7 @@ class _TaskDialogState extends State<TaskDialog> {
               reminder: reminder,
               subtasks: subtasksJson,
               attachmentPath: attach,
+              playSound: false,
             );
           }
         }
@@ -426,6 +433,7 @@ class _TaskDialogState extends State<TaskDialog> {
             reminder: reminder,
             subtasks: subtasksJson,
             attachmentPath: attach,
+            playSound: false,
           );
         }
       } else if (repeatType == 'spaced') {
@@ -445,12 +453,15 @@ class _TaskDialogState extends State<TaskDialog> {
             reminder: reminder,
             subtasks: subtasksJson,
             attachmentPath: attach,
+            playSound: false,
           );
         }
       }
       await widget.db.autoAllocateRollingHabits();
     }
 
+    HapticFeedback.selectionClick();
+    SoundService.play('taskCreated');
     if (mounted) Navigator.pop(context, true);
   }
 

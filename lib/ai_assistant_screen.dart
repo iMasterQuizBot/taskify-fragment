@@ -47,6 +47,7 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
   late final AiService _ai = AiService(widget.db);
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
+  static const MethodChannel _sttAudio = MethodChannel('taskify/stt_audio');
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
 
@@ -222,7 +223,8 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
   Future<void> _toggleListen({required bool autoSend}) async {
     if (_listening) {
       try {
-        await _stt.stop();
+        try { await _sttAudio.invokeMethod('muteBeep'); } catch (_) {}
+    await _stt.stop();
       } catch (_) {}
       if (mounted) {
         setState(() {
@@ -243,7 +245,8 @@ class AiAssistantScreenState extends State<AiAssistantScreen>
         _listening = true;
         _listeningLive = autoSend;
       });
-      await _stt.listen(
+      try { await _sttAudio.invokeMethod('muteBeep'); } catch (_) {}
+    await _stt.listen(
         localeId: 'hi_IN',
         listenFor: const Duration(seconds: 30),
         pauseFor: const Duration(seconds: 3),

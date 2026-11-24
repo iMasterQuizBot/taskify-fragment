@@ -16,6 +16,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.Bundle
 import android.widget.RemoteViews
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -30,8 +31,18 @@ open class TaskifyBaseWidgetProvider(private val widgetNo: Int) : AppWidgetProvi
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (id in appWidgetIds) {
-            TaskifyAllWidgets.bind(context, appWidgetManager, id, widgetNo)
+            TaskifyAllWidgets.bind(context, appWidgetManager, id, widgetNo, null)
         }
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        TaskifyAllWidgets.bind(context, appWidgetManager, appWidgetId, widgetNo, newOptions)
     }
 }
 
@@ -65,11 +76,14 @@ object TaskifyAllWidgets {
         val weeklyPct: Int,
         val monthlyPct: Int,
         val mood: String,
+        val energy: Int,
         val nextTask: String,
         val tasks: List<String>,
         val freezeTokens: Int,
         val weekBars: List<Float>,
+        val bars14d: List<Float>,
         val catBars: List<Pair<String, Float>>,
+        val catCounts: List<Pair<String, Int>>,
     )
 
     private fun readLiveSnapshot(context: Context): LiveSnapshot {
@@ -84,6 +98,7 @@ object TaskifyAllWidgets {
         var weeklyPct = prefs.getInt("weeklyPct", 0)
         var monthlyPct = prefs.getInt("monthlyPct", 0)
         var mood = prefs.getString("mood", "Focused") ?: "Focused"
+        var energy = 82
         var nextTask = prefs.getString("nextTask", "No upcoming task") ?: "No upcoming task"
         var tasks = listOf(
             prefs.getString("task1", "Open Taskifyy to add tasks") ?: "",
@@ -94,6 +109,7 @@ object TaskifyAllWidgets {
         )
         var freezeTokens = 2
         val weekBars = MutableList(7) { 0.35f }
+        val bars14d = MutableList(14) { 0.30f }
         val catDoneMap = linkedMapOf(
             "Study" to 0,
             "Work" to 0,
@@ -156,11 +172,10 @@ object TaskifyAllWidgets {
                 }
                 c.close()
 
-                // Last 7 days completion bars
                 val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                for (i in 0..6) {
+                for (i in 0..13) {
                     val dCal = Calendar.getInstance()
-                    dCal.add(Calendar.DAY_OF_YEAR, -(6 - i))
+                    dCal.add(Calendar.DAY_OF_YEAR, -(13 - i))
                     val dStr = fmt.format(dCal.time)
                     val dc = db.rawQuery("SELECT status FROM tasks WHERE date = ? AND status != 'skipped'", arrayOf(dStr))
                     var tot = 0
@@ -170,15 +185,22 @@ object TaskifyAllWidgets {
                         if (dc.getString(0) == "completed") dn++
                     }
                     dc.close()
-                    weekBars[i] = if (tot == 0) 0.12f else (dn.toFloat() / tot.toFloat()).coerceIn(0.12f, 1.0f)
+                    val ratio = if (tot == 0) 0.14f else (dn.toFloat() / tot.toFloat()).coerceIn(0.14f, 1.0f)
+                    bars14d[i] = ratio
+                    if (i >= 7) weekBars[i - 7] = ratio
                 }
 
-                val mCur = db.rawQuery("SELECT mood FROM mood_logs WHERE date = ? LIMIT 1", arrayOf(todayStr))
-                if (mCur.moveToFirst()) mood = mCur.getString(0) ?: mood
+                val mCur = db.rawQuery("SELECT mood, energy FROM mood_logs WHERE date = ? LIMIT 1", arrayOf(todayStr))
+                if (mCur.moveToFirst()) {
+                    mood = mCur.getString(0) ?: mood
+                    energy = (mCur.getInt(1) * 10).coerceIn(20, 100)
+                }
                 mCur.close()
 
                 val fCur = db.rawQuery("SELECT value FROM settings WHERE key = 'streakFreezeTokens' LIMIT 1", null)
-                if (fCur.moveToFirst()) freezeTokens = fCur.getString(0)?.toIntOrNull() ?: 2
+                if (fCur.moveToFirst()) {
+                    freezeTokens = fCur.getString(0)?.toIntOrNull() ?: freezeTokens
+                }
                 fCur.close()
                 db.close()
 
@@ -187,21 +209,21 @@ object TaskifyAllWidgets {
                 pending = pCount
                 overdue = oCount
                 studyMins = sMins
+                weeklyPct = ((weekBars.sum() / 7f) * 100f).toInt().coerceIn(0, 100)
+                monthlyPct = ((bars14d.sum() / 14f) * 100f).toInt().coerceIn(0, 100)
                 if (pList.isNotEmpty()) {
                     nextTask = pList.first()
-                    tasks = List(5) { idx -> pList.getOrElse(idx) { "" } }
-                } else if (tCount > 0) {
+                    tasks = pList
+                } else if (tCount > 0 && pCount == 0) {
                     nextTask = "All tasks completed!"
-                    tasks = listOf("🏆 All tasks completed today!", "", "", "", "")
+                    tasks = listOf("All $tCount tasks done today!")
                 }
-                val pctNow = if (total == 0) 0 else (done * 100) / total
-                if (weeklyPct == 0) weeklyPct = pctNow
-                if (monthlyPct == 0) monthlyPct = pctNow
             }
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
 
         val maxCat = (catDoneMap.values.maxOrNull() ?: 1).coerceAtLeast(1)
-        val catBars = catDoneMap.entries.map { it.key to (it.value.toFloat() / maxCat.toFloat()).coerceIn(0.15f, 1.0f) }
+        val catBars = catDoneMap.entries.map { it.key to (it.value.toFloat() / maxCat.toFloat()).coerceIn(0.18f, 1.0f) }
+        val catCounts = catDoneMap.entries.map { it.key to it.value }
 
         return LiveSnapshot(
             appTitle = appTitle,
@@ -214,103 +236,15 @@ object TaskifyAllWidgets {
             weeklyPct = weeklyPct,
             monthlyPct = monthlyPct,
             mood = mood,
+            energy = energy,
             nextTask = nextTask,
             tasks = tasks,
             freezeTokens = freezeTokens,
             weekBars = weekBars,
+            bars14d = bars14d,
             catBars = catBars,
+            catCounts = catCounts,
         )
-    }
-
-    private fun drawRingBitmap(pct: Int, c1: Int, c2: Int, centerText: String): Bitmap {
-        val size = 220
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val stroke = 20f
-        val rect = RectF(stroke, stroke, size - stroke, size - stroke)
-
-        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = stroke
-            color = Color.argb(45, 255, 255, 255)
-        }
-        canvas.drawOval(rect, bgPaint)
-
-        val fgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = stroke
-            strokeCap = Paint.Cap.ROUND
-            shader = LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), c1, c2, Shader.TileMode.CLAMP)
-        }
-        val sweep = (360f * pct.coerceIn(0, 100)) / 100f
-        canvas.drawArc(rect, -90f, sweep.coerceAtLeast(8f), false, fgPaint)
-
-        val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            textSize = 44f
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.CENTER
-        }
-        canvas.drawText(centerText, size / 2f, size / 2f + 15f, txtPaint)
-        return bmp
-    }
-
-    private fun drawBarChartBitmap(bars: List<Float>, labels: List<String>, c1: Int, c2: Int): Bitmap {
-        val w = 480
-        val h = 150
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val count = bars.size.coerceAtLeast(1)
-        val slotW = w.toFloat() / count
-        val barW = slotW * 0.52f
-        val topPad = 12f
-        val bottomPad = 28f
-        val maxH = h - topPad - bottomPad
-
-        val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(35, 255, 255, 255) }
-        val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(200, 167, 176, 192)
-            textSize = 20f
-            typeface = Typeface.DEFAULT_BOLD
-            textAlign = Paint.Align.CENTER
-        }
-
-        for (i in 0 until count) {
-            val cx = i * slotW + slotW / 2f
-            val left = cx - barW / 2f
-            val right = cx + barW / 2f
-            val trackRect = RectF(left, topPad, right, topPad + maxH)
-            canvas.drawRoundRect(trackRect, 12f, 12f, trackPaint)
-
-            val bh = maxH * bars[i].coerceIn(0.1f, 1.0f)
-            val barRect = RectF(left, topPad + maxH - bh, right, topPad + maxH)
-            val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(left, barRect.top, right, barRect.bottom, c1, c2, Shader.TileMode.CLAMP)
-            }
-            canvas.drawRoundRect(barRect, 12f, 12f, barPaint)
-
-            if (i < labels.size) {
-                canvas.drawText(labels[i], cx, h - 6f, txtPaint)
-            }
-        }
-        return bmp
-    }
-
-    private fun drawOrbBitmap(): Bitmap {
-        val size = 200
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(90, 34, 211, 238)
-        }
-        canvas.drawCircle(size / 2f, size / 2f, 88f, glow)
-        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(20f, 20f, 180f, 180f, Color.parseColor("#8B5CF6"), Color.parseColor("#22D3EE"), Shader.TileMode.CLAMP)
-        }
-        canvas.drawCircle(size / 2f, size / 2f, 64f, core)
-        val hi = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(110, 255, 255, 255) }
-        canvas.drawCircle(size / 2f - 16f, size / 2f - 16f, 22f, hi)
-        return bmp
     }
 
     fun completeTopPendingTaskInDb(context: Context) {
@@ -325,163 +259,629 @@ object TaskifyAllWidgets {
             )
             if (c.moveToFirst()) {
                 val id = c.getInt(0)
-                val nowIso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
-                db.execSQL("UPDATE tasks SET status = 'completed', updatedAt = ? WHERE id = ?", arrayOf(nowIso, id))
+                db.execSQL("UPDATE tasks SET status = 'completed' WHERE id = ?", arrayOf(id))
             }
             c.close()
             db.close()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
     }
 
-    private fun formatMins(minutes: Int): String {
-        val h24 = (minutes / 60) % 24
-        val m = minutes % 60
-        val ampm = if (h24 >= 12) "PM" else "AM"
+    private fun formatMins(mins: Int): String {
+        val h24 = (mins / 60) % 24
+        val m = mins % 60
+        val ap = if (h24 >= 12) "PM" else "AM"
         val h12 = if (h24 % 12 == 0) 12 else h24 % 12
-        return String.format(Locale.US, "%02d:%02d %s", h12, m, ampm)
+        return String.format(Locale.US, "%d:%02d %s", h12, m, ap)
     }
 
-    fun updateAll(context: Context) {
-        for (no in 1..42) updateOne(context, no)
+    private fun launchIntent(context: Context, actionKey: String, reqCode: Int): PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent(Intent.ACTION_MAIN)
+        intent.putExtra("widget_action", actionKey)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return PendingIntent.getActivity(
+            context,
+            reqCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
-    fun updateOne(context: Context, no: Int) {
-        try {
-            val mgr = AppWidgetManager.getInstance(context)
-            val clsName = "${context.packageName}.TaskifyWidget${no.toString().padStart(2, '0')}"
-            val cls = Class.forName(clsName)
-            val ids = mgr.getAppWidgetIds(ComponentName(context, cls))
-            for (id in ids) bind(context, mgr, id, no)
-        } catch (_: Exception) {}
-    }
-
-    private fun launchPending(context: Context, reqCode: Int, actionKey: String): PendingIntent {
-        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra("widget_action", actionKey)
-        } ?: Intent()
-        return PendingIntent.getActivity(context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    }
-
-    private fun broadcastPending(context: Context, reqCode: Int, action: String): PendingIntent {
+    private fun broadcastIntent(context: Context, action: String, reqCode: Int): PendingIntent {
         val intent = Intent(context, TaskifyWidgetActionReceiver::class.java).apply { this.action = action }
-        return PendingIntent.getBroadcast(context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return PendingIntent.getBroadcast(
+            context,
+            reqCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
-    fun bind(context: Context, mgr: AppWidgetManager, appWidgetId: Int, no: Int) {
-        val snap = readLiveSnapshot(context)
-        val pct = if (snap.total == 0) 0 else (snap.done * 100) / snap.total
-        val studyH = snap.studyMins / 60
-        val studyM = snap.studyMins % 60
-        val studyTxt = if (studyH > 0) "${studyH}h ${studyM}m" else "${studyM}m"
-        val dateStr = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date())
-        val t1 = snap.tasks.getOrElse(0) { "" }
-        val t2 = snap.tasks.getOrElse(1) { "" }
-        val t3 = snap.tasks.getOrElse(2) { "" }
-        val t4 = snap.tasks.getOrElse(3) { "" }
-        val t5 = snap.tasks.getOrElse(4) { "" }
+    private fun drawRingBitmap(pct: Int, c1: Int, c2: Int, centerText: String, subText: String = ""): Bitmap {
+        val size = 280
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val pad = 28f
+        val rect = RectF(pad, pad, size - pad, size - pad)
 
-        val layoutName = "tg_layout_${no.toString().padStart(2, '0')}"
-        val layoutId = context.resources.getIdentifier(layoutName, "layout", context.packageName)
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 24f
+            color = Color.parseColor("#2A3548")
+        }
+        canvas.drawArc(rect, 0f, 360f, false, bgPaint)
+
+        val fgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 24f
+            strokeCap = Paint.Cap.ROUND
+            shader = LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), c1, c2, Shader.TileMode.CLAMP)
+        }
+        val sweep = (pct.coerceIn(0, 100) / 100f) * 360f
+        canvas.drawArc(rect, -90f, sweep.coerceAtLeast(10f), false, fgPaint)
+
+        val txtPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+            textSize = if (centerText.length > 4) 44f else 54f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        canvas.drawText(centerText, size / 2f, size / 2f + 16f, txtPaint)
+        if (subText.isNotEmpty()) {
+            val sPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#94A3B8")
+                textAlign = Paint.Align.CENTER
+                textSize = 22f
+            }
+            canvas.drawText(subText, size / 2f, size / 2f + 46f, sPaint)
+        }
+        return bmp
+    }
+
+    private fun drawHabitRingBitmap(done: Int, total: Int): Bitmap {
+        val size = 280
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val cx = size / 2f
+        val cy = size / 2f
+        val innerRect = RectF(56f, 56f, size - 56f, size - 56f)
+
+        val pct = if (total == 0) 0 else (done * 100 / total)
+        val innerBg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 18f; color = Color.parseColor("#2A3548")
+        }
+        canvas.drawArc(innerRect, 0f, 360f, false, innerBg)
+        val innerFg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 18f; strokeCap = Paint.Cap.ROUND
+            shader = LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"), Shader.TileMode.CLAMP)
+        }
+        canvas.drawArc(innerRect, -90f, (pct / 100f * 360f).coerceAtLeast(16f), false, innerFg)
+
+        // Outer 12 habit tiles
+        val segPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        val activeSegs = ((pct / 100f) * 12).toInt().coerceIn(1, 12)
+        for (i in 0 until 12) {
+            val ang = Math.toRadians((i * 30.0) - 90.0)
+            val rx = cx + (Math.cos(ang) * 112f).toFloat()
+            val ry = cy + (Math.sin(ang) * 112f).toFloat()
+            segPaint.color = if (i < activeSegs) Color.parseColor("#A855F7") else Color.parseColor("#263044")
+            canvas.drawRoundRect(RectF(rx - 10f, ry - 10f, rx + 10f, ry + 10f), 5f, 5f, segPaint)
+        }
+
+        val tPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; textAlign = Paint.Align.CENTER; textSize = 42f; typeface = Typeface.DEFAULT_BOLD
+        }
+        canvas.drawText("$done/${total.coerceAtLeast(1)}", cx, cy + 14f, tPaint)
+        return bmp
+    }
+
+    private fun drawDualRingBitmap(pct: Int, streak: Int): Bitmap {
+        val size = 280
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val r1 = RectF(26f, 26f, size - 26f, size - 26f)
+        val r2 = RectF(60f, 60f, size - 60f, size - 60f)
+
+        val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 18f; color = Color.parseColor("#253042") }
+        canvas.drawArc(r1, 0f, 360f, false, bg)
+        canvas.drawArc(r2, 0f, 360f, false, bg)
+
+        val p1 = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 18f; strokeCap = Paint.Cap.ROUND; color = Color.parseColor("#22D3EE")
+        }
+        val p2 = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = 18f; strokeCap = Paint.Cap.ROUND; color = Color.parseColor("#A855F7")
+        }
+        canvas.drawArc(r1, -90f, (pct / 100f * 360f).coerceAtLeast(18f), false, p1)
+        canvas.drawArc(r2, -90f, ((streak.coerceAtMost(30) / 30f) * 360f).coerceAtLeast(24f), false, p2)
+
+        val tPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; textAlign = Paint.Align.CENTER; textSize = 38f; typeface = Typeface.DEFAULT_BOLD
+        }
+        canvas.drawText("$pct%", size / 2f, size / 2f + 10f, tPaint)
+        return bmp
+    }
+
+    private fun drawBarChartBitmap(bars: List<Float>, labels: List<String>, cTop: Int, cBot: Int, rectangular: Boolean = false): Bitmap {
+        val w = 480
+        val h = 210
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val count = bars.size.coerceAtLeast(1)
+        val colW = (w - 36f) / count
+        val barW = (colW * 0.56f).coerceAtMost(38f)
+        val maxH = h - 48f
+        val rad = if (rectangular) 6f else barW / 2f
+
+        val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#232C40") }
+        val lblPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#94A3B8")
+            textAlign = Paint.Align.CENTER
+            textSize = if (count > 8) 15f else 19f
+        }
+        val valPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#E2E8F0")
+            textAlign = Paint.Align.CENTER
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        for (i in 0 until count) {
+            val cx = 18f + i * colW + colW / 2f
+            val left = cx - barW / 2f
+            val right = cx + barW / 2f
+            val topTrack = 20f
+            val botTrack = maxH + 14f
+
+            canvas.drawRoundRect(RectF(left, topTrack, right, botTrack), rad, rad, trackPaint)
+
+            val ratio = bars[i].coerceIn(0.10f, 1.0f)
+            val barTop = botTrack - (maxH - 6f) * ratio
+            val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(left, barTop, right, botTrack, cTop, cBot, Shader.TileMode.CLAMP)
+            }
+            canvas.drawRoundRect(RectF(left, barTop, right, botTrack), rad, rad, barPaint)
+
+            if (rectangular && count <= 7) {
+                canvas.drawText("${(ratio * 100).toInt()}%", cx, barTop - 4f, valPaint)
+            }
+            if (i < labels.size) {
+                canvas.drawText(labels[i], cx, h - 8f, lblPaint)
+            }
+        }
+        return bmp
+    }
+
+    private fun drawCategoryStackedBitmap(catCounts: List<Pair<String, Int>>): Bitmap {
+        val w = 480
+        val h = 110
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val colors = listOf(
+            Color.parseColor("#22D3EE"),
+            Color.parseColor("#FBBF24"),
+            Color.parseColor("#3B82F6"),
+            Color.parseColor("#A855F7"),
+            Color.parseColor("#FB7185"),
+        )
+        val total = catCounts.sumOf { it.second }.coerceAtLeast(1)
+        var x = 12f
+        val availW = w - 24f
+        val barRect = RectF(12f, 16f, w - 12f, 48f)
+        val bgP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#232C40") }
+        canvas.drawRoundRect(barRect, 16f, 16f, bgP)
+
+        val segP = Paint(Paint.ANTI_ALIAS_FLAG)
+        val dotP = Paint(Paint.ANTI_ALIAS_FLAG)
+        val txtP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CBD5E1"); textSize = 19f }
+
+        catCounts.forEachIndexed { idx, pair ->
+            val frac = if (catCounts.sumOf { it.second } == 0) 0.2f else (pair.second.toFloat() / total.toFloat()).coerceAtLeast(0.08f)
+            val segW = (availW * frac).coerceAtMost((w - 12f) - x)
+            segP.color = colors[idx % colors.size]
+            if (segW > 4f) {
+                canvas.drawRoundRect(RectF(x, 16f, x + segW - 2f, 48f), 8f, 8f, segP)
+                x += segW
+            }
+            val lx = 16f + idx * 92f
+            dotP.color = colors[idx % colors.size]
+            canvas.drawCircle(lx, 84f, 6f, dotP)
+            canvas.drawText(pair.first, lx + 12f, 90f, txtP)
+        }
+        return bmp
+    }
+
+    private fun drawMoodEnergyBitmap(moodPct: Int, energyPct: Int): Bitmap {
+        val w = 440
+        val h = 150
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val trackP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#232C40") }
+        val lblP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 24f; typeface = Typeface.DEFAULT_BOLD }
+
+        // Row 1: Mood
+        canvas.drawText("Mood", 12f, 42f, lblP)
+        canvas.drawRoundRect(RectF(110f, 22f, w - 16f, 48f), 13f, 13f, trackP)
+        val mPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(110f, 0f, w - 16f, 0f, Color.parseColor("#22D3EE"), Color.parseColor("#34D399"), Shader.TileMode.CLAMP)
+        }
+        val mEnd = 110f + ((w - 126f) * (moodPct / 100f))
+        canvas.drawRoundRect(RectF(110f, 22f, mEnd, 48f), 13f, 13f, mPaint)
+
+        // Row 2: Energy
+        canvas.drawText("Energy", 12f, 108f, lblP)
+        canvas.drawRoundRect(RectF(110f, 88f, w - 16f, 114f), 13f, 13f, trackP)
+        val ePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(110f, 0f, w - 16f, 0f, Color.parseColor("#F472B6"), Color.parseColor("#FBBF24"), Shader.TileMode.CLAMP)
+        }
+        val eEnd = 110f + ((w - 126f) * (energyPct / 100f))
+        canvas.drawRoundRect(RectF(110f, 88f, eEnd, 114f), 13f, 13f, ePaint)
+        return bmp
+    }
+
+    private fun drawMiniCalendarBitmap(): Bitmap {
+        val w = 440
+        val h = 230
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val cal = Calendar.getInstance()
+        val todayDay = cal.get(Calendar.DAY_OF_MONTH)
+        val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        val startDow = ((cal.get(Calendar.DAY_OF_WEEK) + 5) % 7) // Mon=0..Sun=6
+
+        val hdrP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#94A3B8"); textAlign = Paint.Align.CENTER; textSize = 18f; typeface = Typeface.DEFAULT_BOLD }
+        val dayP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E2E8F0"); textAlign = Paint.Align.CENTER; textSize = 19f }
+        val hiBg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#22D3EE") }
+        val hiTxt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0B0E14"); textAlign = Paint.Align.CENTER; textSize = 19f; typeface = Typeface.DEFAULT_BOLD }
+
+        val headers = listOf("M", "T", "W", "T", "F", "S", "S")
+        val colW = w / 7f
+        for (c in 0..6) canvas.drawText(headers[c], c * colW + colW / 2f, 24f, hdrP)
+
+        var row = 1
+        var col = startDow
+        for (d in 1..maxDays) {
+            val cx = col * colW + colW / 2f
+            val cy = 28f + row * 34f
+            if (d == todayDay) {
+                canvas.drawRoundRect(RectF(cx - 16f, cy - 18f, cx + 16f, cy + 8f), 8f, 8f, hiBg)
+                canvas.drawText("$d", cx, cy, hiTxt)
+            } else {
+                canvas.drawText("$d", cx, cy, dayP)
+            }
+            col++
+            if (col >= 7) { col = 0; row++ }
+        }
+        return bmp
+    }
+
+    private fun drawHeatmapBitmap(bars14d: List<Float>): Bitmap {
+        val w = 460
+        val h = 160
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        val cols = 7
+        val rows = 2
+        val cellW = (w - 36f) / cols
+        val cellH = (h - 24f) / rows
+        for (i in 0 until 14) {
+            val r = i / cols
+            val c = i % cols
+            val v = bars14d[i]
+            p.color = when {
+                v >= 0.8f -> Color.parseColor("#22D3EE")
+                v >= 0.5f -> Color.parseColor("#34D399")
+                v >= 0.25f -> Color.parseColor("#A855F7")
+                else -> Color.parseColor("#232C40")
+            }
+            val left = 18f + c * cellW + 4f
+            val top = 12f + r * cellH + 4f
+            canvas.drawRoundRect(RectF(left, top, left + cellW - 8f, top + cellH - 8f), 10f, 10f, p)
+        }
+        return bmp
+    }
+
+    private fun drawHorizontalProgressBitmap(pct: Int, c1: Int, c2: Int): Bitmap {
+        val w = 360
+        val h = 68
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#232C40") }
+        canvas.drawRoundRect(RectF(10f, 20f, w - 10f, 48f), 14f, 14f, track)
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(10f, 0f, w - 10f, 0f, c1, c2, Shader.TileMode.CLAMP)
+        }
+        val endX = 10f + ((w - 20f) * (pct.coerceIn(5, 100) / 100f))
+        canvas.drawRoundRect(RectF(10f, 20f, endX, 48f), 14f, 14f, fill)
+        return bmp
+    }
+
+    private fun drawOrbBitmap(c1: Int, c2: Int, label: String): Bitmap {
+        val size = 240
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = c1; alpha = 65
+        }
+        canvas.drawCircle(size / 2f, size / 2f, 100f, glow)
+        val orb = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(20f, 20f, size - 20f, size - 20f, c1, c2, Shader.TileMode.CLAMP)
+        }
+        canvas.drawCircle(size / 2f, size / 2f, 74f, orb)
+        val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; textAlign = Paint.Align.CENTER; textSize = 34f; typeface = Typeface.DEFAULT_BOLD
+        }
+        canvas.drawText(label, size / 2f, size / 2f + 12f, txt)
+        return bmp
+    }
+
+    private fun getLayoutId(context: Context, widgetNo: Int): Int {
+        val name = String.format(Locale.US, "tg_layout_%02d", widgetNo)
+        return context.resources.getIdentifier(name, "layout", context.packageName)
+    }
+
+    private fun getId(context: Context, name: String): Int {
+        return context.resources.getIdentifier(name, "id", context.packageName)
+    }
+
+    fun bind(context: Context, manager: AppWidgetManager, widgetId: Int, widgetNo: Int, options: Bundle? = null) {
+        val layoutId = getLayoutId(context, widgetNo)
         if (layoutId == 0) return
 
-        val views = RemoteViews(context.packageName, layoutId)
-        val pkg = context.packageName
-
-        fun setTxt(idName: String, value: String) {
-            val resId = context.resources.getIdentifier(idName, "id", pkg)
-            if (resId != 0) views.setTextViewText(resId, value)
-        }
-        fun setProg(progress: Int) {
-            val resId = context.resources.getIdentifier("wg_progress", "id", pkg)
-            if (resId != 0) views.setProgressBar(resId, 100, progress.coerceIn(0, 100), false)
-        }
-        fun setBmp(bmp: Bitmap) {
-            val resId = context.resources.getIdentifier("wg_canvas", "id", pkg)
-            if (resId != 0) views.setImageViewBitmap(resId, bmp)
-        }
-        fun setClickAction(idName: String, reqCode: Int, actionKey: String) {
-            val resId = context.resources.getIdentifier(idName, "id", pkg)
-            if (resId != 0) views.setOnClickPendingIntent(resId, launchPending(context, reqCode, actionKey))
-        }
-        fun setBroadcastAction(idName: String, reqCode: Int, broadcastAct: String) {
-            val resId = context.resources.getIdentifier(idName, "id", pkg)
-            if (resId != 0) views.setOnClickPendingIntent(resId, broadcastPending(context, reqCode, broadcastAct))
-        }
-
-        val cCyan = Color.parseColor("#22D3EE")
-        val cViolet = Color.parseColor("#8B5CF6")
-        val cEmerald = Color.parseColor("#34D399")
-        val cAmber = Color.parseColor("#FBBF24")
-        val cRose = Color.parseColor("#FB7185")
-        val weekLabels = listOf("M", "T", "W", "T", "F", "S", "S")
+        val snap = readLiveSnapshot(context)
+        val pct = if (snap.total == 0) 0 else ((snap.done * 100) / snap.total)
+        val studyHrs = String.format(Locale.US, "%dh %02dm", snap.studyMins / 60, snap.studyMins % 60)
+        val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
         val catLabels = snap.catBars.map { it.first }
         val catVals = snap.catBars.map { it.second }
 
-        when (no) {
-            1 -> { setTxt("wg_title", "TODAY PROGRESS"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done} of ${snap.total} done"); setBmp(drawRingBitmap(pct, cCyan, cViolet, "$pct%")) }
-            2 -> { setTxt("wg_title", "FIRE STREAK"); setTxt("wg_big", "🔥 ${snap.streak}"); setTxt("wg_sub", "Days active"); setProg((snap.streak * 10).coerceIn(10, 100)) }
-            3 -> { setTxt("wg_title", "${snap.appTitle} • ${snap.done}/${snap.total}"); setTxt("wg_badge", "🔥 ${snap.streak}d"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setProg(pct) }
-            4 -> { setTxt("wg_title", "NEXT UP"); setTxt("wg_big", "⏳"); setTxt("wg_sub", snap.nextTask) }
-            5 -> { setTxt("wg_title", "FOCUS TIMER"); setTxt("wg_big", "25:00"); setTxt("wg_sub", "▶ Start Focus"); setBmp(drawRingBitmap(100, cCyan, cEmerald, "25m")) }
-            6 -> { setTxt("wg_title", "STUDY TODAY"); setTxt("wg_big", studyTxt); setTxt("wg_sub", "Completed Study"); setBmp(drawBarChartBitmap(catVals, catLabels, cViolet, cCyan)) }
-            7 -> { setTxt("wg_title", "Weekly Bar Chart"); setTxt("wg_badge", "${snap.weeklyPct}%"); setTxt("wg_line1", "Done: ${snap.done} • Left: ${snap.pending}"); setTxt("wg_line2", "Study: $studyTxt • Streak: ${snap.streak}d"); setProg(snap.weeklyPct); setBmp(drawBarChartBitmap(snap.weekBars, weekLabels, cCyan, cViolet)) }
-            8 -> { setTxt("wg_title", "MONTHLY RING"); setTxt("wg_big", "${snap.monthlyPct}%"); setTxt("wg_sub", "Consistency"); setBmp(drawRingBitmap(snap.monthlyPct, cEmerald, cCyan, "${snap.monthlyPct}%")) }
-            9 -> { setTxt("wg_title", "Category Columns"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: ${snap.mood}"); setTxt("wg_line2", "Done: ${snap.done} • Pending: ${snap.pending}"); setProg(pct); setBmp(drawBarChartBitmap(catVals, catLabels, cEmerald, cCyan)) }
-            10 -> { setTxt("wg_title", "+ Add Task"); setTxt("wg_badge", "Quick") }
-            11 -> { setTxt("wg_title", "VOICE AI ORB"); setTxt("wg_big", "🎙️ Orb"); setTxt("wg_sub", "Offline & API"); setBmp(drawOrbBitmap()) }
-            12 -> { setTxt("wg_title", "Ask Offline AI..."); setTxt("wg_badge", "⚡ Ask") }
-            13 -> { setTxt("wg_title", "MOOD & ENERGY"); setTxt("wg_big", "⚡ ${snap.mood}"); setTxt("wg_sub", "Today's Vibe"); setProg(85) }
-            14 -> { setTxt("wg_title", "CALENDAR"); setTxt("wg_big", SimpleDateFormat("dd", Locale.getDefault()).format(Date())); setTxt("wg_sub", dateStr); setBmp(drawRingBitmap(pct, cCyan, cViolet, SimpleDateFormat("dd", Locale.getDefault()).format(Date()))) }
-            15 -> { setTxt("wg_title", "OVERDUE"); setTxt("wg_big", "⚠️ ${snap.overdue}"); setTxt("wg_sub", if (snap.overdue == 0) "All on track!" else "Tap to Fix"); setProg(if (snap.overdue == 0) 100 else 35) }
-            16 -> { setTxt("wg_title", "SPACED REVISION"); setTxt("wg_big", "1·3·7·21"); setTxt("wg_sub", "Revision Ready"); setProg(pct) }
-            17 -> { setTxt("wg_title", "Morning Briefing"); setTxt("wg_badge", dateStr); setTxt("wg_line1", "Progress: $pct% (${snap.done}/${snap.total})"); setTxt("wg_line2", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setTxt("wg_line3", "Next: ${snap.nextTask}"); setProg(pct) }
-            18 -> { setTxt("wg_title", "HABITS"); setTxt("wg_big", "${snap.done}/${snap.total}"); setTxt("wg_sub", "$pct% Daily"); setBmp(drawRingBitmap(pct, cEmerald, cViolet, "${snap.done}/${snap.total}")) }
-            19 -> { setTxt("wg_title", "Daily Motivation"); setTxt("wg_badge", "✨"); setTxt("wg_line1", "Done is better than perfect."); setTxt("wg_line2", "Keep your ${snap.streak}d streak alive!") }
-            20 -> { setTxt("wg_title", "STREAK SHIELD"); setTxt("wg_big", "🛡️ ${snap.freezeTokens}"); setTxt("wg_sub", "Freeze Tokens") }
-            21 -> { setTxt("wg_big", "🔥${snap.streak}"); setTxt("wg_sub", "Streak") }
-            22 -> { setTxt("wg_big", "$pct%"); setTxt("wg_sub", "${snap.done}/${snap.total}"); setBmp(drawRingBitmap(pct, cCyan, cViolet, "$pct%")) }
-            23 -> { setTxt("wg_big", studyTxt); setTxt("wg_sub", "Study") }
-            24 -> { setTxt("wg_big", "${snap.overdue}"); setTxt("wg_sub", "Overdue") }
-            25 -> { setTxt("wg_title", "${snap.appTitle} • $pct% (${snap.done}/${snap.total})"); setTxt("wg_badge", "🔥 ${snap.streak}d"); setProg(pct) }
-            26 -> { setTxt("wg_title", "Next: ${snap.nextTask}"); setTxt("wg_badge", "⏳") }
-            27 -> { setTxt("wg_title", "Today Agenda (${snap.done}/${snap.total})"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", t1); setTxt("wg_line2", t2); setTxt("wg_line3", t3); setTxt("wg_line4", t4); setTxt("wg_line5", t5); setProg(pct) }
-            28 -> { setTxt("wg_title", "Study & Column Hub"); setTxt("wg_badge", studyTxt); setTxt("wg_line1", "Today: $pct% • Weekly: ${snap.weeklyPct}%"); setTxt("wg_line2", "Next: ${snap.nextTask}"); setTxt("wg_line3", "Pending: ${snap.pending} • Overdue: ${snap.overdue}"); setProg(pct); setBmp(drawBarChartBitmap(snap.weekBars, weekLabels, cViolet, cCyan)) }
-            29 -> { setTxt("wg_title", "DONE / LEFT"); setTxt("wg_big", "${snap.done} / ${snap.pending}"); setTxt("wg_sub", "$pct% Complete"); setBmp(drawBarChartBitmap(listOf((snap.done.coerceAtLeast(1)).toFloat() / snap.total.coerceAtLeast(1), (snap.pending.coerceAtLeast(1)).toFloat() / snap.total.coerceAtLeast(1)), listOf("Done", "Left"), cEmerald, cRose)) }
-            30 -> { setTxt("wg_title", "DEEP WORK"); setTxt("wg_big", "🎯 50m"); setTxt("wg_sub", studyTxt); setBmp(drawRingBitmap(((snap.studyMins * 100) / 240).coerceIn(10, 100), cViolet, cCyan, "50m")) }
-            31 -> { setTxt("wg_title", "POMODORO"); setTxt("wg_big", "25 / 5"); setTxt("wg_sub", "Study Cycle"); setBmp(drawRingBitmap(80, cCyan, cViolet, "25/5")) }
-            32 -> { setTxt("wg_title", "LONG FOCUS"); setTxt("wg_big", "50 / 10"); setTxt("wg_sub", "Study Cycle"); setBmp(drawRingBitmap(85, cEmerald, cCyan, "50/10")) }
-            33 -> { setTxt("wg_title", "Night Review Chart"); setTxt("wg_badge", "$pct%"); setTxt("wg_line1", "Completed: ${snap.done} • Left: ${snap.pending}"); setProg(pct); setBmp(drawBarChartBitmap(catVals, catLabels, cAmber, cRose)) }
-            34 -> { setTxt("wg_title", "DAILY TARGET"); setTxt("wg_big", "$pct%"); setTxt("wg_sub", "Goal: 80%"); setBmp(drawRingBitmap(pct, cAmber, cRose, "$pct%")) }
-            35 -> { setTxt("wg_title", "Next: ${snap.nextTask}"); setTxt("wg_badge", "${snap.overdue} due") }
-            36 -> { setTxt("wg_title", "✨ API AI"); setTxt("wg_badge", "Open") }
-            37 -> { setTxt("wg_title", "🌐 DeepSeek"); setTxt("wg_badge", "Web") }
-            38 -> { setTxt("wg_title", "${snap.appTitle} Command"); setTxt("wg_badge", "🔥 ${snap.streak}d • $pct%"); setTxt("wg_line1", "Study: $studyTxt • Mood: ${snap.mood}"); setTxt("wg_line2", t1); setTxt("wg_line3", t2); setTxt("wg_line4", t3); setTxt("wg_line5", "Weekly: ${snap.weeklyPct}% • Overdue: ${snap.overdue}"); setProg(pct); setBmp(drawBarChartBitmap(snap.weekBars, weekLabels, cCyan, cEmerald)) }
-            39 -> { setTxt("wg_title", "COMPLETED"); setTxt("wg_big", "🏆 ${snap.done}"); setTxt("wg_sub", "Out of ${snap.total}"); setBmp(drawBarChartBitmap(catVals, catLabels, cEmerald, cCyan)) }
-            40 -> { setTxt("wg_title", "$dateStr • ${snap.mood}"); setTxt("wg_badge", "$pct%") }
-            41 -> { setTxt("wg_title", "⚡ Offline AI Control"); setTxt("wg_badge", "Streak ${snap.streak}d"); setTxt("wg_line1", "Pending: ${snap.pending} • Done: ${snap.done} • Instant Offline AI") }
-            42 -> { setTxt("wg_title", "✨ API AI Control"); setTxt("wg_badge", "$pct% Today"); setTxt("wg_line1", "Gemini & DeepSeek • Full App Control") }
+        val views = RemoteViews(context.packageName, layoutId)
+        val idRoot = getId(context, "wg_root")
+        val idTitle = getId(context, "wg_title")
+        val idSub = getId(context, "wg_sub")
+        val idBadge = getId(context, "wg_badge")
+        val idBody = getId(context, "wg_body")
+        val idCanvas = getId(context, "wg_canvas")
+        val idBtn1 = getId(context, "wg_btn_1")
+        val idBtn2 = getId(context, "wg_btn_2")
+
+        var actionKey = "open_today"
+        var titleStr = snap.appTitle
+        var badgeStr = "LIVE"
+        var bodyStr = snap.nextTask
+        var bmp: Bitmap? = null
+
+        when (widgetNo) {
+            1, 48, 82, 84 -> {
+                titleStr = "Today Progress"; badgeStr = "${snap.done}/${snap.total}"
+                bodyStr = "${snap.pending} pending today"
+                bmp = drawRingBitmap(pct, Color.parseColor("#22D3EE"), Color.parseColor("#3B82F6"), "$pct%", "done")
+            }
+            2 -> {
+                titleStr = "Streak"; badgeStr = "${snap.streak}d"
+                bodyStr = "${snap.streak} Days fire streak"
+                bmp = drawOrbBitmap(Color.parseColor("#F97316"), Color.parseColor("#A855F7"), "${snap.streak}d")
+            }
+            3, 47, 55, 56 -> {
+                titleStr = if (widgetNo == 47) "Critical Tasks" else "Today"
+                badgeStr = "${snap.done}/${snap.total}"
+                bodyStr = snap.tasks.take(3).filter { it.isNotBlank() }.joinToString("\n")
+                bmp = drawHorizontalProgressBitmap(pct, Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"))
+            }
+            4 -> {
+                titleStr = "Next Up"; badgeStr = "IST"
+                bodyStr = snap.nextTask
+                bmp = drawOrbBitmap(Color.parseColor("#6366F1"), Color.parseColor("#A855F7"), "NEXT")
+            }
+            5, 31 -> {
+                titleStr = "Focus Timer"; badgeStr = "25:00"
+                bodyStr = "Live countdown"
+                bmp = drawRingBitmap(65, Color.parseColor("#22D3EE"), Color.parseColor("#34D399"), "25:00", "focus")
+                actionKey = "open_focus_25"
+            }
+            32 -> {
+                titleStr = "Pomodoro 50/10"; badgeStr = "50:00"
+                bodyStr = "Deep work timer"
+                bmp = drawRingBitmap(75, Color.parseColor("#A855F7"), Color.parseColor("#22D3EE"), "50:00", "deep")
+                actionKey = "open_focus_50"
+            }
+            6, 23, 64 -> {
+                titleStr = "Study Time"; badgeStr = studyHrs
+                bodyStr = "$studyHrs today tracker"
+                bmp = drawHorizontalProgressBitmap((snap.studyMins / 3).coerceIn(10, 100), Color.parseColor("#A855F7"), Color.parseColor("#22D3EE"))
+            }
+            7, 88 -> {
+                titleStr = "Weekly"; badgeStr = "${snap.weeklyPct}%"
+                bodyStr = "7-day completion bars"
+                bmp = drawBarChartBitmap(snap.weekBars, dayLabels, Color.parseColor("#C084FC"), Color.parseColor("#38BDF8"), false)
+                actionKey = "open_insights"
+            }
+            52, 77 -> {
+                titleStr = "Weekly Columns"; badgeStr = "${snap.weeklyPct}%"
+                bodyStr = "Rectangular 7-day columns"
+                bmp = drawBarChartBitmap(snap.weekBars, dayLabels, Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"), true)
+                actionKey = "open_insights"
+            }
+            53, 78, 98 -> {
+                titleStr = "Category Columns"; badgeStr = "${snap.done} done"
+                bodyStr = "Category completion columns"
+                bmp = drawBarChartBitmap(catVals, catLabels, Color.parseColor("#34D399"), Color.parseColor("#22D3EE"), true)
+                actionKey = "open_insights"
+            }
+            54 -> {
+                titleStr = "14-Day Trend"; badgeStr = "${snap.monthlyPct}%"
+                bodyStr = "14-day progress bars"
+                bmp = drawBarChartBitmap(snap.bars14d, List(14) { "${it + 1}" }, Color.parseColor("#34D399"), Color.parseColor("#22D3EE"), false)
+                actionKey = "open_insights"
+            }
+            8 -> {
+                titleStr = "Monthly"; badgeStr = "${snap.monthlyPct}%"
+                bodyStr = "High-score: ${snap.monthlyPct}%"
+                bmp = drawRingBitmap(snap.monthlyPct, Color.parseColor("#60A5FA"), Color.parseColor("#A855F7"), "${snap.monthlyPct}%", "score")
+                actionKey = "open_insights"
+            }
+            9, 71 -> {
+                titleStr = "Categories"; badgeStr = "${snap.done}"
+                bodyStr = "Work • Study • Health"
+                bmp = drawCategoryStackedBitmap(snap.catCounts)
+                actionKey = "open_insights"
+            }
+            10, 44, 68 -> {
+                titleStr = "Quick Add"; badgeStr = "+"
+                bodyStr = "Tap to create task"
+                bmp = drawHorizontalProgressBitmap(100, Color.parseColor("#3B82F6"), Color.parseColor("#22D3EE"))
+                actionKey = "open_quick_add"
+            }
+            11, 43 -> {
+                titleStr = "AI Voice"; badgeStr = "LIVE"
+                bodyStr = "Instant voice tasks"
+                bmp = drawOrbBitmap(Color.parseColor("#22D3EE"), Color.parseColor("#EC4899"), "MIC")
+                actionKey = "open_live_voice"
+            }
+            12, 76 -> {
+                titleStr = "Ask Taskifyy AI"; badgeStr = "AI"
+                bodyStr = "Offline + API AI"
+                bmp = drawHorizontalProgressBitmap(90, Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"))
+                actionKey = "open_offline_ai"
+            }
+            13 -> {
+                titleStr = "Mood & Energy"; badgeStr = snap.mood
+                bodyStr = "${snap.mood} • Energy ${snap.energy}%"
+                bmp = drawMoodEnergyBitmap(78, snap.energy)
+            }
+            14 -> {
+                titleStr = "Calendar"; badgeStr = "MONTH"
+                bodyStr = "Mini monthly calendar"
+                bmp = drawMiniCalendarBitmap()
+                actionKey = "open_calendar"
+            }
+            15, 59, 89 -> {
+                titleStr = "Overdue"; badgeStr = "${snap.overdue}"
+                bodyStr = "${snap.overdue} items overdue!"
+                bmp = drawRingBitmap((snap.overdue * 20).coerceIn(10, 100), Color.parseColor("#FB7185"), Color.parseColor("#EF4444"), "${snap.overdue}", "due")
+                actionKey = "open_overdue"
+            }
+            16, 66 -> {
+                titleStr = "Revision"; badgeStr = "1,3,7,21"
+                bodyStr = "Spaced repetition"
+                bmp = drawHorizontalProgressBitmap(pct, Color.parseColor("#22D3EE"), Color.parseColor("#34D399"))
+            }
+            17 -> {
+                titleStr = "Good Morning!"; badgeStr = "${snap.total} tasks"
+                bodyStr = "${snap.done} done • ${snap.pending} pending today"
+                bmp = drawHorizontalProgressBitmap(pct, Color.parseColor("#FBBF24"), Color.parseColor("#22D3EE"))
+            }
+            18, 83, 85 -> {
+                titleStr = "Habits"; badgeStr = "${snap.done}/${snap.total}"
+                bodyStr = "Habit Ring"
+                bmp = drawHabitRingBitmap(snap.done, snap.total)
+            }
+            19, 96 -> {
+                titleStr = "Inspiration"; badgeStr = "DAILY"
+                bodyStr = "Done is better than perfect."
+                bmp = drawHorizontalProgressBitmap(100, Color.parseColor("#34D399"), Color.parseColor("#22D3EE"))
+            }
+            20, 67 -> {
+                titleStr = "Shield"; badgeStr = "${snap.freezeTokens}"
+                bodyStr = "Streak Freeze: ${snap.freezeTokens} available"
+                bmp = drawOrbBitmap(Color.parseColor("#22D3EE"), Color.parseColor("#3B82F6"), "${snap.freezeTokens}")
+            }
+            28, 97 -> {
+                titleStr = "Study Hub"; badgeStr = studyHrs
+                bodyStr = "${snap.weeklyPct}% weekly • ${snap.streak}d streak"
+                bmp = drawBarChartBitmap(snap.weekBars, dayLabels, Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"), true)
+                actionKey = "open_insights"
+            }
+            41 -> {
+                titleStr = "Offline AI"; badgeStr = "READY"
+                bodyStr = "Human-like local AI"
+                bmp = drawOrbBitmap(Color.parseColor("#22D3EE"), Color.parseColor("#34D399"), "AI")
+                actionKey = "open_offline_ai"
+            }
+            42, 36 -> {
+                titleStr = "API AI"; badgeStr = "FULL"
+                bodyStr = "365d + 8 Repeat Modes"
+                bmp = drawOrbBitmap(Color.parseColor("#A855F7"), Color.parseColor("#22D3EE"), "API")
+                actionKey = "open_api_ai"
+            }
+            37 -> {
+                titleStr = "DeepSeek Web"; badgeStr = "WEB"
+                bodyStr = "Instant DeepSeek open"
+                bmp = drawOrbBitmap(Color.parseColor("#3B82F6"), Color.parseColor("#A855F7"), "DS")
+                actionKey = "open_deepseek"
+            }
+            79 -> {
+                titleStr = "Progress & Streak"; badgeStr = "$pct%"
+                bodyStr = "${snap.streak}d streak • ${snap.done}/${snap.total}"
+                bmp = drawDualRingBitmap(pct, snap.streak)
+            }
+            80, 92 -> {
+                titleStr = "Monthly Heatmap"; badgeStr = "${snap.monthlyPct}%"
+                bodyStr = "14-day consistency"
+                bmp = drawHeatmapBitmap(snap.bars14d)
+                actionKey = "open_insights"
+            }
+            38, 99, 100 -> {
+                titleStr = if (widgetNo == 100) "AI Command Hub" else "Taskifyy Pro"
+                badgeStr = "$pct%"
+                bodyStr = "${snap.done}/${snap.total} done • ${snap.streak}d streak • $studyHrs"
+                bmp = drawBarChartBitmap(snap.weekBars, dayLabels, Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"), true)
+                if (widgetNo == 100) actionKey = "open_api_ai"
+            }
+            51, 81, 86 -> {
+                titleStr = "Study Ring"; badgeStr = studyHrs
+                bodyStr = "$studyHrs studied today"
+                bmp = drawRingBitmap((snap.studyMins / 3).coerceIn(10, 100), Color.parseColor("#34D399"), Color.parseColor("#22D3EE"), studyHrs, "study")
+            }
+            57 -> {
+                titleStr = "PYQ Target"; badgeStr = "$pct%"
+                bodyStr = "PYQs & Mock progress"
+                bmp = drawRingBitmap(pct, Color.parseColor("#FBBF24"), Color.parseColor("#F97316"), "$pct%", "PYQ")
+            }
+            else -> {
+                titleStr = "Taskifyy"; badgeStr = "$pct%"
+                bodyStr = "${snap.done}/${snap.total} done • ${snap.nextTask}"
+                bmp = drawHorizontalProgressBitmap(pct, Color.parseColor("#22D3EE"), Color.parseColor("#A855F7"))
+            }
         }
 
-        val rootAction = when (no) {
-            5, 30, 31, 32 -> "focus_timer"
-            6, 7, 8, 9, 23 -> "stats"
-            10 -> "add_task"
-            11 -> "voice_orb"
-            12, 41 -> "offline_ai"
-            14 -> "calendar"
-            36, 42 -> "api_ai"
-            37 -> "deepseek_web"
-            else -> "today"
-        }
-        setClickAction("wg_root", 100 + no, rootAction)
-        setBroadcastAction("wg_btn_done", 200 + no, ACTION_COMPLETE_TOP)
-        setBroadcastAction("wg_btn_sync", 300 + no, ACTION_SYNC)
-        setClickAction("wg_btn_add", 400 + no, "add_task")
-        setClickAction("wg_btn_voice", 500 + no, "voice_orb")
-        setClickAction("wg_btn_chat", 600 + no, if (no == 41) "offline_ai" else "api_ai")
+        if (idTitle != 0) views.setTextViewText(idTitle, titleStr)
+        if (idSub != 0) views.setTextViewText(idSub, bodyStr)
+        if (idBadge != 0) views.setTextViewText(idBadge, badgeStr)
+        if (idBody != 0) views.setTextViewText(idBody, bodyStr)
+        if (idCanvas != 0 && bmp != null) views.setImageViewBitmap(idCanvas, bmp)
 
-        mgr.updateAppWidget(appWidgetId, views)
+        val pi = launchIntent(context, actionKey, 1000 + widgetNo)
+        if (idRoot != 0) views.setOnClickPendingIntent(idRoot, pi)
+        if (idBtn1 != 0) {
+            if (widgetNo == 45) {
+                views.setTextViewText(idBtn1, "Done Top")
+                views.setOnClickPendingIntent(idBtn1, broadcastIntent(context, ACTION_COMPLETE_TOP, 2000 + widgetNo))
+            } else {
+                views.setOnClickPendingIntent(idBtn1, pi)
+            }
+        }
+        if (idBtn2 != 0) {
+            views.setOnClickPendingIntent(idBtn2, broadcastIntent(context, ACTION_SYNC, 3000 + widgetNo))
+        }
+
+        manager.updateAppWidget(widgetId, views)
+    }
+
+    fun updateOne(context: Context, widgetNo: Int) {
+        val mgr = AppWidgetManager.getInstance(context)
+        val clsName = String.format(Locale.US, "%s.TaskifyWidget%02d", context.packageName, widgetNo)
+        try {
+            val cn = ComponentName(context.packageName, clsName)
+            val ids = mgr.getAppWidgetIds(cn)
+            for (id in ids) bind(context, mgr, id, widgetNo, mgr.getAppWidgetOptions(id))
+        } catch (_: Throwable) {}
+    }
+
+    fun updateAll(context: Context) {
+        for (i in 1..100) updateOne(context, i)
     }
 }
 
@@ -527,3 +927,61 @@ class TaskifyWidget39 : TaskifyBaseWidgetProvider(39)
 class TaskifyWidget40 : TaskifyBaseWidgetProvider(40)
 class TaskifyWidget41 : TaskifyBaseWidgetProvider(41)
 class TaskifyWidget42 : TaskifyBaseWidgetProvider(42)
+class TaskifyWidget43 : TaskifyBaseWidgetProvider(43)
+class TaskifyWidget44 : TaskifyBaseWidgetProvider(44)
+class TaskifyWidget45 : TaskifyBaseWidgetProvider(45)
+class TaskifyWidget46 : TaskifyBaseWidgetProvider(46)
+class TaskifyWidget47 : TaskifyBaseWidgetProvider(47)
+class TaskifyWidget48 : TaskifyBaseWidgetProvider(48)
+class TaskifyWidget49 : TaskifyBaseWidgetProvider(49)
+class TaskifyWidget50 : TaskifyBaseWidgetProvider(50)
+class TaskifyWidget51 : TaskifyBaseWidgetProvider(51)
+class TaskifyWidget52 : TaskifyBaseWidgetProvider(52)
+class TaskifyWidget53 : TaskifyBaseWidgetProvider(53)
+class TaskifyWidget54 : TaskifyBaseWidgetProvider(54)
+class TaskifyWidget55 : TaskifyBaseWidgetProvider(55)
+class TaskifyWidget56 : TaskifyBaseWidgetProvider(56)
+class TaskifyWidget57 : TaskifyBaseWidgetProvider(57)
+class TaskifyWidget58 : TaskifyBaseWidgetProvider(58)
+class TaskifyWidget59 : TaskifyBaseWidgetProvider(59)
+class TaskifyWidget60 : TaskifyBaseWidgetProvider(60)
+class TaskifyWidget61 : TaskifyBaseWidgetProvider(61)
+class TaskifyWidget62 : TaskifyBaseWidgetProvider(62)
+class TaskifyWidget63 : TaskifyBaseWidgetProvider(63)
+class TaskifyWidget64 : TaskifyBaseWidgetProvider(64)
+class TaskifyWidget65 : TaskifyBaseWidgetProvider(65)
+class TaskifyWidget66 : TaskifyBaseWidgetProvider(66)
+class TaskifyWidget67 : TaskifyBaseWidgetProvider(67)
+class TaskifyWidget68 : TaskifyBaseWidgetProvider(68)
+class TaskifyWidget69 : TaskifyBaseWidgetProvider(69)
+class TaskifyWidget70 : TaskifyBaseWidgetProvider(70)
+class TaskifyWidget71 : TaskifyBaseWidgetProvider(71)
+class TaskifyWidget72 : TaskifyBaseWidgetProvider(72)
+class TaskifyWidget73 : TaskifyBaseWidgetProvider(73)
+class TaskifyWidget74 : TaskifyBaseWidgetProvider(74)
+class TaskifyWidget75 : TaskifyBaseWidgetProvider(75)
+class TaskifyWidget76 : TaskifyBaseWidgetProvider(76)
+class TaskifyWidget77 : TaskifyBaseWidgetProvider(77)
+class TaskifyWidget78 : TaskifyBaseWidgetProvider(78)
+class TaskifyWidget79 : TaskifyBaseWidgetProvider(79)
+class TaskifyWidget80 : TaskifyBaseWidgetProvider(80)
+class TaskifyWidget81 : TaskifyBaseWidgetProvider(81)
+class TaskifyWidget82 : TaskifyBaseWidgetProvider(82)
+class TaskifyWidget83 : TaskifyBaseWidgetProvider(83)
+class TaskifyWidget84 : TaskifyBaseWidgetProvider(84)
+class TaskifyWidget85 : TaskifyBaseWidgetProvider(85)
+class TaskifyWidget86 : TaskifyBaseWidgetProvider(86)
+class TaskifyWidget87 : TaskifyBaseWidgetProvider(87)
+class TaskifyWidget88 : TaskifyBaseWidgetProvider(88)
+class TaskifyWidget89 : TaskifyBaseWidgetProvider(89)
+class TaskifyWidget90 : TaskifyBaseWidgetProvider(90)
+class TaskifyWidget91 : TaskifyBaseWidgetProvider(91)
+class TaskifyWidget92 : TaskifyBaseWidgetProvider(92)
+class TaskifyWidget93 : TaskifyBaseWidgetProvider(93)
+class TaskifyWidget94 : TaskifyBaseWidgetProvider(94)
+class TaskifyWidget95 : TaskifyBaseWidgetProvider(95)
+class TaskifyWidget96 : TaskifyBaseWidgetProvider(96)
+class TaskifyWidget97 : TaskifyBaseWidgetProvider(97)
+class TaskifyWidget98 : TaskifyBaseWidgetProvider(98)
+class TaskifyWidget99 : TaskifyBaseWidgetProvider(99)
+class TaskifyWidget100 : TaskifyBaseWidgetProvider(100)

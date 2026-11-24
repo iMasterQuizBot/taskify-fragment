@@ -1,2 +1,2 @@
 18 , 186-withaut prmission option
-214 - widget not proper 
+261- allfit but offline ai google aawaz

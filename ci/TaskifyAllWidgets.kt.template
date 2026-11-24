@@ -876,6 +876,7 @@ object TaskifyAllWidgets {
         try {
             val cn = ComponentName(context.packageName, clsName)
             val ids = mgr.getAppWidgetIds(cn)
+            if (ids == null || ids.isEmpty()) return
             for (id in ids) bind(context, mgr, id, widgetNo, mgr.getAppWidgetOptions(id))
         } catch (_: Throwable) {}
     }

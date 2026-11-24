@@ -36,8 +36,8 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:src="@drawable/tg_prev_study"
         android:scaleType="fitCenter"
-        android:src="@drawable/tg_ring_preview"
         android:layout_marginTop="4dp"
         android:layout_marginBottom="4dp"
         android:contentDescription="Widget Chart"/>
@@ -45,10 +45,10 @@
         android:id="@+id/wg_body"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Today study"
+        android:text="3h 40m study"
         android:textColor="#CBD5E1"
         android:textSize="11sp"
-        android:maxLines="3"
+        android:maxLines="2"
         android:ellipsize="end"/>
     <LinearLayout
         android:layout_width="match_parent"
@@ -58,7 +58,7 @@
         <TextView
             android:id="@+id/wg_btn_1"
             android:layout_width="0dp"
-            android:layout_height="26dp"
+            android:layout_height="25dp"
             android:layout_weight="1"
             android:background="@drawable/tg_btn_glass"
             android:gravity="center"
@@ -69,7 +69,7 @@
         <TextView
             android:id="@+id/wg_btn_2"
             android:layout_width="0dp"
-            android:layout_height="26dp"
+            android:layout_height="25dp"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
             android:background="@drawable/tg_btn_cyan"

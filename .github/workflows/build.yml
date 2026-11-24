@@ -257,7 +257,7 @@ jobs:
 
           mkdir -p android/app/src/main/res/layout android/app/src/main/res/drawable android/app/src/main/res/xml
           cp ci/res_widgets/layout/*.xml android/app/src/main/res/layout/
-          cp ci/res_widgets/drawable/*.xml android/app/src/main/res/drawable/
+          cp ci/res_widgets/drawable/* android/app/src/main/res/drawable/
           cp ci/res_widgets/xml/*.xml android/app/src/main/res/xml/
           cat << 'EOF' > android/app/src/main/res/xml/taskify_sound_paths.xml
           <?xml version="1.0" encoding="utf-8"?>

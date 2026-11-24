@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'ai_service.dart';
+import 'app_ui_bridge.dart';
 import 'app_database.dart';
 
 /// Gemini Live: Push-to-Talk (दबाकर बोलें, छोड़ने पर AI जवाब देता है) +
@@ -78,7 +79,9 @@ class LiveVoiceService {
               'end_time': {'type': 'STRING', 'description': 'खत्म का समय HH:MM (वैकल्पिक)'},
               'category': {'type': 'STRING', 'description': 'Study, Work, Health, Exercise, Personal, Family, Learning, Other'},
               'priority': {'type': 'INTEGER', 'description': '1 से 4'},
-              'repeat_type': {'type': 'STRING', 'description': 'once, daily, alternate, weekdays, weekends, spaced'},
+              'repeat_type': {'type': 'STRING', 'description': 'once, daily, alternate, weekdays, weekends, custom_days, custom_dates, spaced'},
+              'repeat_days': {'type': 'STRING', 'description': 'जैसे Sun या Mon,Wed,Fri'},
+              'notes': {'type': 'STRING', 'description': 'नोट्स, फॉर्मूला, लिंक या PYQ'},
             },
             'required': ['title', 'start_time'],
           },
@@ -123,13 +126,106 @@ class LiveVoiceService {
           },
         },
         {
+          'name': 'skip_task',
+          'description': 'किसी टास्क को skipped मार्क करता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'title': {'type': 'STRING', 'description': 'टास्क का नाम'},
+            },
+            'required': ['title'],
+          },
+        },
+        {
           'name': 'list_tasks',
-          'description': 'किसी दिन के टास्क दिखाता है।',
+          'description': 'किसी एक दिन या अगले N दिनों (जैसे 10, 15, 30, 365 दिन) के टास्क दिखाता है।',
           'parameters': {
             'type': 'OBJECT',
             'properties': {
               'date': {'type': 'STRING', 'description': 'YYYY-MM-DD; न दिया हो तो आज'},
+              'days_ahead': {'type': 'INTEGER', 'description': 'अगले कितने दिनों के टास्क चाहिए (1 से 365)'},
             },
+          },
+        },
+        {
+          'name': 'search_tasks',
+          'description': 'पूरे इतिहास में टास्क खोजता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'query': {'type': 'STRING', 'description': 'खोजने का शब्द'},
+            },
+            'required': ['query'],
+          },
+        },
+        {
+          'name': 'get_stats',
+          'description': 'आज या पिछले N दिनों के स्टैट्स व स्ट्रीक बताता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'days': {'type': 'INTEGER', 'description': 'दिनों की संख्या (1 से 365)'},
+            },
+          },
+        },
+        {
+          'name': 'reschedule_overdue',
+          'description': 'छूटे हुए Overdue टास्क को अगले खाली स्लॉट में शिफ्ट करता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {},
+          },
+        },
+        {
+          'name': 'navigate_and_control',
+          'description': 'ऐप की कोई भी स्क्रीन खोलता है या टाइमर/डायलॉग चलाता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'action': {'type': 'STRING', 'description': 'open_today, open_calendar, open_stats, open_routines, open_settings, open_offline_ai, open_api_ai, open_deepseek, add_task_dialog, start_focus_25, start_focus_50'},
+            },
+            'required': ['action'],
+          },
+        },
+        {
+          'name': 'manage_category',
+          'description': 'ऐप की कैटेगरी देखता, जोड़ता या डिलीट करता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'action': {'type': 'STRING', 'description': 'list, add, delete'},
+              'name': {'type': 'STRING', 'description': 'कैटेगरी का नाम'},
+            },
+            'required': ['action'],
+          },
+        },
+        {
+          'name': 'manage_routine',
+          'description': 'रूटीन टेम्पलेट देखता/लगाता है या आज के टास्क कल कॉपी करता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'action': {'type': 'STRING', 'description': 'list_templates, apply_template, copy_day'},
+              'template_name': {'type': 'STRING', 'description': 'टेम्पलेट का नाम'},
+            },
+            'required': ['action'],
+          },
+        },
+        {
+          'name': 'get_app_overview',
+          'description': 'ऐप का पूरा लाइव ओवरव्यू (आज के टास्क, स्ट्रीक, नोटिफिकेशन, मूड) देता है।',
+          'parameters': {'type': 'OBJECT', 'properties': {}},
+        },
+        {
+          'name': 'set_app_setting',
+          'description': 'नोटिफिकेशन ऑन/ऑफ या ऐप सेटिंग बदलता है।',
+          'parameters': {
+            'type': 'OBJECT',
+            'properties': {
+              'key': {'type': 'STRING', 'description': 'notificationsEnabled, notificationLeadTime, theme'},
+              'value': {'type': 'STRING', 'description': '1/0, 5/10/15, dark/light'},
+            },
+            'required': ['key', 'value'],
           },
         },
       ],
@@ -181,7 +277,7 @@ class LiveVoiceService {
                   'यूज़र की भाषा में छोटा, सहज जवाब दो। चिन्ह या markdown मत बोलो। '
                   'जब भी यूज़र टास्क जोड़ने, एडिट करने, पूरा करने या डिलीट करने को कहे, तो '
                   'हमेशा दिए गए tool (add_task, edit_task, complete_task, delete_task, list_tasks) '
-                  'को ज़रूर चलाओ—बिना tool चलाए कभी मत कहो कि टास्क जोड़ या बदल दिया।',
+                  'तथा skip_task, search_tasks, get_stats, reschedule_overdue, set_app_setting को ज़रूर चलाओ। सभी 8 रिपीट मोड (once, daily, alternate, weekdays, weekends, custom_days जैसे सिर्फ Sunday के लिए repeat_days="Sun", custom_dates, spaced) और 365 दिन तक का शेड्यूल (days_ahead) संभाल सकते हो।',
             },
           ],
         },
@@ -251,6 +347,8 @@ class LiveVoiceService {
             category: (args['category'] ?? 'Other').toString(),
             priority: int.tryParse('${args['priority'] ?? 2}') ?? 2,
             repeatType: (args['repeat_type'] ?? 'once').toString(),
+            repeatDays: (args['repeat_days'] ?? '').toString(),
+            notes: (args['notes'] ?? '').toString(),
             reminder: true,
           );
           onDatabaseChanged?.call();
@@ -301,13 +399,115 @@ class LiveVoiceService {
           onDatabaseChanged?.call();
           return {'deleted': rows.length};
 
+        case 'skip_task':
+          final sRows = await db.searchAllTasks((args['title'] ?? '').toString());
+          if (sRows.isEmpty) return {'error': 'टास्क नहीं मिला'};
+          await db.updateStatus(sRows.first['id'] as int, 'skipped');
+          onDatabaseChanged?.call();
+          return {'ok': true, 'skipped': sRows.first['title']};
+
         case 'list_tasks':
+          if (args['days_ahead'] != null) {
+            final days = (int.tryParse('${args['days_ahead']}') ?? 10).clamp(1, 366);
+            final start = _parseDate(args['date']);
+            final end = start.add(Duration(days: days - 1));
+            final rRows = await db.tasksBetween(start, end);
+            return {
+              'days': days,
+              'count': rRows.length,
+              'tasks': rRows.take(120).map((r) => {
+                'date': r['date'],
+                'title': r['title'],
+                'status': r['status'],
+                'category': r['category'],
+                'startMinutes': r['startMinutes'],
+              }).toList(),
+            };
+          }
           final rows = await db.getTasks(_parseDate(args['date']));
           return {
             'tasks': rows
                 .map((r) => {'title': r['title'], 'status': r['status'], 'startMinutes': r['startMinutes']})
                 .toList(),
           };
+
+        case 'search_tasks':
+          final fRows = await db.searchAllTasks((args['query'] ?? '').toString());
+          return {'count': fRows.length, 'tasks': fRows.take(20).map((r) => {'date': r['date'], 'title': r['title'], 'status': r['status']}).toList()};
+
+        case 'get_stats':
+          final days = (int.tryParse('${args['days'] ?? 30}') ?? 30).clamp(1, 365);
+          final endD = _nowIst();
+          final stRows = await db.tasksBetween(endD.subtract(Duration(days: days - 1)), endD);
+          final doneCnt = stRows.where((r) => r['status'] == 'completed').length;
+          final stk = await db.calculateCurrentStreak();
+          return {'days': days, 'total': stRows.length, 'completed': doneCnt, 'streak': stk};
+
+        case 'reschedule_overdue':
+          final moved = await db.rescheduleOverdueTasks(_nowIst());
+          onDatabaseChanged?.call();
+          return {'ok': true, 'rescheduled': moved};
+
+        case 'navigate_and_control':
+          final act = (args['action'] ?? 'open_today').toString();
+          final msg = await AppUiBridge.instance.trigger(act);
+          return {'ok': true, 'message': msg};
+
+        case 'manage_category':
+          final cAct = (args['action'] ?? 'list').toString();
+          if (cAct == 'add' && args['name'] != null) {
+            await db.addCategory(args['name'].toString());
+            onDatabaseChanged?.call();
+            return {'ok': true, 'added': args['name']};
+          } else if (cAct == 'delete' && args['name'] != null) {
+            await db.deleteCategory(args['name'].toString());
+            onDatabaseChanged?.call();
+            return {'ok': true, 'deleted': args['name']};
+          }
+          final cats = await db.categories();
+          return {'categories': cats.map((c) => c['name']).toList()};
+
+        case 'manage_routine':
+          final rAct = (args['action'] ?? 'list_templates').toString();
+          if (rAct == 'list_templates') {
+            final tpls = await db.templates();
+            return {'templates': tpls.map((t) => t['name']).toList()};
+          } else if (rAct == 'copy_day') {
+            final todayD = _nowIst();
+            final tomD = todayD.add(const Duration(days: 1));
+            final srcList = await db.getTasks(todayD);
+            for (final t in srcList) {
+              await db.addTask(
+                date: tomD,
+                title: t['title'].toString(),
+                startMinutes: t['startMinutes'] as int,
+                endMinutes: t['endMinutes'] as int?,
+                category: t['category'].toString(),
+                priority: t['priority'] as int,
+                playSound: false,
+              );
+            }
+            onDatabaseChanged?.call();
+            return {'ok': true, 'copied': srcList.length};
+          }
+          return {'ok': true};
+
+        case 'get_app_overview':
+          final ist = _nowIst();
+          final tList = await db.getTasks(ist);
+          final dCnt = tList.where((r) => r['status'] == 'completed').length;
+          final stkVal = await db.calculateCurrentStreak();
+          return {'total': tList.length, 'completed': dCnt, 'streak': stkVal};
+
+        case 'set_app_setting':
+          final k = (args['key'] ?? '').toString();
+          final v = (args['value'] ?? '').toString();
+          if (k.isNotEmpty) {
+            await db.setSetting(k, v);
+            if (k == 'notificationsEnabled') await db.rescheduleAllReminders();
+            onDatabaseChanged?.call();
+          }
+          return {'ok': true, 'key': k, 'value': v};
 
         default:
           return {'error': 'Unknown tool: $name'};

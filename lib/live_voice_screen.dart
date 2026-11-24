@@ -5,6 +5,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'app_ui_bridge.dart';
 import 'live_voice_service.dart';
 import 'offline_ai_engine.dart';
 import 'tts_voice.dart';
@@ -294,6 +295,18 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     }
   }
 
+  Future<void> _minimizeToBubble() async {
+    if (_closed) return;
+    final isApi = _mode == _VoiceMode.api;
+    _closed = true;
+    _isHolding = false;
+    await _stopCurrentMode();
+    await _apiSvc.dispose();
+    await _stopForegroundService();
+    AppUiBridge.instance.showBubble(isApi: isApi);
+    if (mounted) Navigator.pop(context);
+  }
+
   Future<void> _close() async {
     if (_closed) return;
     _closed = true;
@@ -339,7 +352,7 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _close();
+        if (!didPop) _minimizeToBubble();
       },
       child: Scaffold(
         backgroundColor: Colors.black,

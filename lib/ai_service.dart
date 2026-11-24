@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'app_database.dart';
+import 'app_ui_bridge.dart';
 import 'offline_ai_engine.dart';
 
 /// Gemini / DeepSeek API Service — Taskifyy ऐप का पूरा कंट्रोल, 1–2+ महीने का इतिहास,
@@ -147,14 +148,48 @@ class AiService {
     },
     {
       'name': 'list_tasks',
-      'description': 'किसी एक दिन या 1–2+ महीने की तारीख़ रेंज (start_date से end_date) के सभी टास्क दिखाता है।',
+      'description': 'किसी एक दिन, अगले N दिनों (जैसे 10, 15, 30, 365 दिन) या पूरे साल की तारीख़ रेंज के सभी टास्क दिखाता है।',
       'parameters': {
         'type': 'OBJECT',
         'properties': {
           'date': {'type': 'STRING', 'description': 'YYYY-MM-DD (एक दिन के लिए)'},
+          'days_ahead': {'type': 'INTEGER', 'description': 'आज से अगले कितने दिनों के टास्क चाहिए (1 से 365, जैसे 10 या 15)'},
           'start_date': {'type': 'STRING', 'description': 'रेंज की शुरुआती तारीख YYYY-MM-DD'},
           'end_date': {'type': 'STRING', 'description': 'रेंज की अंतिम तारीख YYYY-MM-DD'},
         },
+      },
+    },
+    {
+      'name': 'manage_routine',
+      'description': 'रूटीन टेम्पलेट देखता/लगाता है या एक दिन के टास्क दूसरे दिन कॉपी करता है।',
+      'parameters': {
+        'type': 'OBJECT',
+        'properties': {
+          'action': {'type': 'STRING', 'description': 'list_templates, apply_template, या copy_day'},
+          'template_name': {'type': 'STRING', 'description': 'टेम्पलेट का नाम (जैसे Tech JE Aspirant, 5 AM Club)'},
+          'from_date': {'type': 'STRING', 'description': 'copy_day के लिए स्रोत तारीख YYYY-MM-DD'},
+          'to_date': {'type': 'STRING', 'description': 'लक्ष्य तारीख YYYY-MM-DD'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'navigate_and_control',
+      'description': 'ऐप की कोई भी स्क्रीन (Today, Calendar, Stats, Routines, Settings, DeepSeek) खोलता है या Focus Timer चलाता है।',
+      'parameters': {
+        'type': 'OBJECT',
+        'properties': {
+          'action': {'type': 'STRING', 'description': 'open_today, open_calendar, open_stats, open_routines, open_settings, open_offline_ai, open_api_ai, open_deepseek, add_task_dialog, start_focus_25, start_focus_50'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'get_app_overview',
+      'description': 'पूरे ऐप का लाइव ओवरव्यू (आज के टास्क, स्ट्रीक, स्टडी समय, ओवरड्यू, मूड, नोटिफिकेशन सेटिंग, कैटेगरी) एक साथ देता है।',
+      'parameters': {
+        'type': 'OBJECT',
+        'properties': {},
       },
     },
     {
@@ -263,11 +298,13 @@ class AiService {
 ऐप का पूरा नक्शा (A-to-Z जानकारी):
 • 4 टैब: Today (टाइमलाइन, Mood/Energy, Morning/Night Briefing, 1-Tap Fix Overdue, Global Search, Swipe Complete/Skip, Focus Timer 25/5 & 50/10), Calendar (मासिक %), Insights/Stats (Study Time, Weekly/Monthly, Category-wise stats), Routines (Copy to Tomorrow)।
 • AI Hub: Offline AI, API AI, DeepSeek Web (Date-wise saved chat, Long-press सुनें/कॉपी/शेयर/डिलीट)।
-• Settings: App Title, Dark/Light, 120Hz Refresh Rate, Sounds, Indian Voices, PIN + Fingerprint Lock, Full JSON Export/Import, Monthly PDF Report, Permissions Hub।
-• 8 रिपीट मोड: once, daily, alternate (एक दिन छोड़ कर), weekdays (Mon-Fri), weekends (Sat-Sun), custom_days (Mon..Sun), custom_dates (YYYY-MM-DD), spaced (1,3,7,21 दिन)।
+• Task Editor में उपलब्ध फीचर्स: Title, Time, Category, Priority (1=Low, 2=Normal, 3=High, 4=Critical), Checklist/Subtasks, Formula, Notes, Link (URL), PYQ Solve टारगेट/नोट्स, Advance Notification ON/OFF व Lead Time (5/10/15/30 min)।
+• Settings: App Title, Dark/Light, 120Hz Refresh Rate, Sounds, Indian Voices, PIN + Fingerprint Lock, Full JSON Export/Import, Monthly PDF Report, 100 Home Widgets, Permissions Hub।
+• सभी 8 रिपीट मोड: once (1 बार), daily (रोज़), alternate (एक दिन छोड़कर), weekdays (Mon-Fri), weekends (Sat-Sun), custom_days (जैसे सिर्फ Sunday के लिए repeat_type="custom_days", repeat_days="Sun" या "Mon,Wed,Fri"), custom_dates (YYYY-MM-DD), spaced (1,3,7,21 दिन)।
 नियम:
 - हमेशा भारतीय समय (IST, UTC+05:30) का ही उपयोग करें। "अभी" कहने पर $time लें।
-- तुम्हारे पास पूरे ऐप का कंट्रोल है: add_task (कैटेगरी, प्रायोरिटी 1-4, रिपीट मोड once/daily/alternate/weekdays/weekends/custom_days/custom_dates/spaced, सबटास्क, नोट्स, रिमाइंडर), edit_task, complete_task, skip_task, delete_task, list_tasks (1-2 महीने की रेंज भी), search_tasks, get_stats, manage_category, reschedule_overdue, set_app_setting।
+- 10 दिन, 15 दिन, 1 महीना या पूरे साल (365 दिन) के टास्क देखने के लिए list_tasks में days_ahead या start_date/end_date का इस्तेमाल करें।
+- तुम्हारे पास पूरे ऐप का कंट्रोल है: add_task (Formula/Notes/Link/PYQ को notes/description में सेव करें), edit_task, complete_task, skip_task, delete_task, list_tasks (365 दिन तक), search_tasks, get_stats, get_app_overview, manage_category, manage_routine, reschedule_overdue, set_app_setting।
 - कोई भी ऐप काम (टास्क जोड़ना, एडिट, डिलीट, हिस्ट्री देखना, सेटिंग बदलना) करने से पहले **हमेशा tool call चलाएँ**, फिर नतीजा बताएँ।
 - LaTeX, \$ चिन्ह, \\ कमांड, कोड-ब्लॉक या तालिका (table) न लिखें; गणित सादे Unicode में लिखें।
 - यूज़र की भाषा (हिंदी, अंग्रेज़ी या मिक्स) में जवाब दें।''';
@@ -665,12 +702,16 @@ class AiService {
           return {'deleted': rows.length, 'titles': rows.map((r) => r['title']).toList()};
 
         case 'list_tasks':
-          if (args['start_date'] != null && args['end_date'] != null) {
-            final rows = await db.tasksBetween(_parseDate(args['start_date']), _parseDate(args['end_date']));
+          if (args['days_ahead'] != null) {
+            final days = (int.tryParse('${args['days_ahead']}') ?? 10).clamp(1, 366);
+            final start = _parseDate(args['start_date'] ?? args['date']);
+            final end = start.add(Duration(days: days - 1));
+            final rows = await db.tasksBetween(start, end);
             return {
+              'days': days,
               'count': rows.length,
               'tasks': rows
-                  .take(80)
+                  .take(250)
                   .map((r) => {
                         'date': r['date'],
                         'title': r['title'],
@@ -678,6 +719,25 @@ class AiService {
                         'category': r['category'],
                         'priority': r['priority'],
                         'startMinutes': r['startMinutes'],
+                        'repeatType': r['repeatType'],
+                      })
+                  .toList(),
+            };
+          }
+          if (args['start_date'] != null && args['end_date'] != null) {
+            final rows = await db.tasksBetween(_parseDate(args['start_date']), _parseDate(args['end_date']));
+            return {
+              'count': rows.length,
+              'tasks': rows
+                  .take(250)
+                  .map((r) => {
+                        'date': r['date'],
+                        'title': r['title'],
+                        'status': r['status'],
+                        'category': r['category'],
+                        'priority': r['priority'],
+                        'startMinutes': r['startMinutes'],
+                        'repeatType': r['repeatType'],
                       })
                   .toList(),
             };
@@ -756,6 +816,81 @@ class AiService {
             await db.rescheduleAllReminders();
           }
           return {'ok': true, 'key': key, 'value': value};
+
+        case 'manage_routine':
+          final action = (args['action'] ?? 'list_templates').toString();
+          if (action == 'list_templates') {
+            final tpls = await db.templates();
+            return {'templates': tpls.map((t) => t['name']).toList()};
+          } else if (action == 'apply_template' && args['template_name'] != null) {
+            final tpls = await db.templates();
+            final targetName = args['template_name'].toString().toLowerCase();
+            final found = tpls.where((t) => t['name'].toString().toLowerCase().contains(targetName)).toList();
+            if (found.isEmpty) return {'error': 'टेम्पलेट नहीं मिला'};
+            final list = (jsonDecode(found.first['tasksJson'].toString()) as List).cast<Map<String, dynamic>>();
+            final toDate = _parseDate(args['to_date']);
+            for (final item in list) {
+              await db.addTask(
+                date: toDate,
+                title: item['title'].toString(),
+                startMinutes: item['start'] as int,
+                endMinutes: item['end'] as int?,
+                category: (item['cat'] ?? 'Study').toString(),
+                priority: (item['pri'] ?? 2) as int,
+                playSound: false,
+              );
+            }
+            return {'ok': true, 'applied': found.first['name'], 'count': list.length};
+          } else if (action == 'copy_day') {
+            final fromD = _parseDate(args['from_date']);
+            final toD = _parseDate(args['to_date'] ?? DateFormat('yyyy-MM-dd').format(_nowIst().add(const Duration(days: 1))));
+            final srcTasks = await db.getTasks(fromD);
+            for (final t in srcTasks) {
+              await db.addTask(
+                date: toD,
+                title: t['title'].toString(),
+                description: t['description']?.toString() ?? '',
+                startMinutes: t['startMinutes'] as int,
+                endMinutes: t['endMinutes'] as int?,
+                category: t['category'].toString(),
+                priority: t['priority'] as int,
+                notes: t['notes']?.toString() ?? '',
+                subtasks: t['subtasks']?.toString() ?? '',
+                playSound: false,
+              );
+            }
+            return {'ok': true, 'copied': srcTasks.length};
+          }
+          return {'error': 'अमान्य routine action'};
+
+        case 'navigate_and_control':
+          final act = (args['action'] ?? 'open_today').toString();
+          final msg = await AppUiBridge.instance.trigger(act);
+          return {'ok': true, 'message': msg};
+
+        case 'get_app_overview':
+          final ist = _nowIst();
+          final todayList = await db.getTasks(ist);
+          final doneCnt = todayList.where((r) => r['status'] == 'completed').length;
+          final skipCnt = todayList.where((r) => r['status'] == 'skipped').length;
+          final pendCnt = todayList.where((r) => r['status'] == 'pending').length;
+          final streakVal = await db.calculateCurrentStreak();
+          final notifOn = await db.getSetting('notificationsEnabled') ?? '1';
+          final leadMin = await db.getSetting('notificationLeadTime') ?? '5';
+          final moodLog = await db.getMoodLog(ist);
+          final catsList = await db.categories();
+          return {
+            'todayTotal': todayList.length,
+            'completed': doneCnt,
+            'pending': pendCnt,
+            'skipped': skipCnt,
+            'streak': streakVal,
+            'notificationsEnabled': notifOn == '1',
+            'notificationLeadTimeMin': leadMin,
+            'mood': moodLog?['mood'] ?? 'none',
+            'energy': moodLog?['energy'] ?? 0,
+            'categories': catsList.map((c) => c['name']).toList(),
+          };
 
         default:
           return {'error': 'अज्ञात कार्य: $name'};

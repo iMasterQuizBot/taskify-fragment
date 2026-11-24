@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'ai_service.dart';
 import 'app_database.dart';
 import 'app_theme.dart';
+import 'app_ui_bridge.dart';
 import 'calendar_page.dart';
 import 'focus_timer_dialog.dart';
 import 'live_voice_screen.dart';
@@ -12,6 +13,7 @@ import 'screens/deepseek_web_screen.dart';
 import 'settings_page.dart';
 import 'statistics_page.dart';
 import 'today_page.dart';
+import 'widgets/floating_ai_bubble.dart';
 
 class MainScreen extends StatefulWidget {
   final AppDatabase db;
@@ -49,6 +51,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     pageController = PageController(initialPage: 0);
+    AppUiBridge.instance.onAction = _handleAiUiAction;
     _widgetChannel.setMethodCallHandler((call) async {
       if (call.method == 'onAction' && call.arguments is String) {
         _handleWidgetAction(call.arguments as String);
@@ -78,6 +81,59 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _handleWidgetAction(act);
       }
     } catch (_) {}
+  }
+
+
+  Future<String> _handleAiUiAction(String action, Map<String, dynamic> params) async {
+    if (!mounted) return 'UI ready नहीं है।';
+    switch (action) {
+      case 'open_today':
+        pageController.jumpToPage(0);
+        return 'Today स्क्रीन खोल दी गई है।';
+      case 'open_calendar':
+        pageController.jumpToPage(1);
+        return 'Calendar स्क्रीन खोल दी गई है।';
+      case 'open_stats':
+        pageController.jumpToPage(2);
+        return 'Insights/Stats स्क्रीन खोल दी गई है।';
+      case 'open_routines':
+        pageController.jumpToPage(3);
+        return 'Routines स्क्रीन खोल दी गई है।';
+      case 'open_settings':
+        _openSettings();
+        return 'Settings खोल दी गई है।';
+      case 'open_offline_ai':
+        _openDeepSeek(initialTab: 0);
+        return 'Offline AI खोल दिया गया है।';
+      case 'open_api_ai':
+        _openDeepSeek(initialTab: 1);
+        return 'API AI खोल दिया गया है।';
+      case 'open_deepseek':
+        _openDeepSeek(initialTab: 2);
+        return 'DeepSeek Web खोल दिया गया है।';
+      case 'add_task_dialog':
+        pageController.jumpToPage(0);
+        Future.delayed(const Duration(milliseconds: 120), () {
+          todayKey.currentState?.addTask();
+        });
+        return 'नया टास्क फॉर्म खोल दिया गया है।';
+      case 'start_focus_25':
+      case 'start_focus_50':
+        final mins = action == 'start_focus_50' ? 50 : 25;
+        showDialog(
+          context: context,
+          builder: (_) => FocusTimerDialog(
+            taskTitle: 'AI Focus ($mins min)',
+            initialStartMinutes: 360,
+          ),
+        );
+        return '$mins मिनट का Focus Timer शुरू कर दिया गया है।';
+      case 'refresh':
+        globalRefresh();
+        return 'ऐप रिफ्रेश हो गया।';
+      default:
+        return 'कार्रवाई पूरी हुई।';
+    }
   }
 
   void _handleWidgetAction(String act) {
@@ -128,6 +184,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (AppUiBridge.instance.onAction == _handleAiUiAction) AppUiBridge.instance.onAction = null;
     WidgetsBinding.instance.removeObserver(this);
     _removeConfetti();
     pageController.dispose();
@@ -252,6 +309,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             onPageChanged: (idx) => setState(() => currentIndex = idx),
             physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
             children: pages,
+          ),
+          FloatingAiBubble(
+            db: widget.db,
+            onDatabaseChanged: globalRefresh,
           ),
         ],
       ),

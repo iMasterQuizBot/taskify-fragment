@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:intl/intl.dart';
 import 'app_database.dart';
+import 'app_ui_bridge.dart';
 
 class OfflineAiReply {
   final String text;
@@ -155,6 +156,33 @@ class OfflineAiEngine {
 
     final lower = input.toLowerCase();
 
+    // 0.05. वॉइस से सीधे ऐप स्क्रीन / टाइमर कंट्रोल
+    if (_matchesAny(lower, ['कैलेंडर खोलो', 'open calendar', 'calendar kholo'])) {
+      await AppUiBridge.instance.trigger('open_calendar');
+      return const OfflineAiReply(text: '📅 लीजिए, Calendar स्क्रीन खोल दी गई है!');
+    }
+    if (_matchesAny(lower, ['स्टैट्स खोलो', 'इंसाइट्स खोलो', 'open stats', 'open insights'])) {
+      await AppUiBridge.instance.trigger('open_stats');
+      return const OfflineAiReply(text: '📊 Insights & Stats स्क्रीन खोल दी गई है!');
+    }
+    if (_matchesAny(lower, ['रूटीन खोलो', 'open routines', 'routines kholo'])) {
+      await AppUiBridge.instance.trigger('open_routines');
+      return const OfflineAiReply(text: '🔁 Routines स्क्रीन खोल दी गई है!');
+    }
+    if (_matchesAny(lower, ['सेटिंग खोलो', 'सेटिंग्स खोलो', 'open settings'])) {
+      await AppUiBridge.instance.trigger('open_settings');
+      return const OfflineAiReply(text: '⚙️ Settings खोल दी गई है!');
+    }
+    if (_matchesAny(lower, ['डीपसीक खोलो', 'open deepseek', 'deepseek kholo'])) {
+      await AppUiBridge.instance.trigger('open_deepseek');
+      return const OfflineAiReply(text: '🌐 DeepSeek Web खोल दिया गया है!');
+    }
+    if (_matchesAny(lower, ['फोकस टाइमर', 'focus timer', 'पोमोडोरो', 'pomodoro', 'टाइमर चलाओ', 'टाइमर शुरू'])) {
+      final is50 = lower.contains('50');
+      await AppUiBridge.instance.trigger(is50 ? 'start_focus_50' : 'start_focus_25');
+      return OfflineAiReply(text: '⏱️ ${is50 ? 50 : 25} मिनट का Focus Timer शुरू कर दिया गया है! पूरा ध्यान लगा दो!');
+    }
+
     // 0.1. A-to-Z ऐप फ़ीचर गाइड (कहाँ से क्या करना है)
     if (_matchesAny(lower, ['pdf', 'पीडीएफ', 'मंथली रिपोर्ट'])) {
       return const OfflineAiReply(
@@ -178,7 +206,24 @@ class OfflineAiEngine {
     }
     if (_matchesAny(lower, ['विजेट', 'widget', 'होम स्क्रीन'])) {
       return const OfflineAiReply(
-        text: '📱 फोन की होम स्क्रीन पर खाली जगह दबाकर रखें → Widgets → Taskifyy चुनें। वहाँ आपको 42 Apple Glass विजेट्स (Progress Ring, Bar Chart, Column Chart, Offline AI, API AI आदि) मिलेंगे!',
+        text: '📱 फोन की होम स्क्रीन पर खाली जगह दबाकर रखें → Widgets → Taskifyy चुनें। वहाँ आपको 100 कस्टमाइज़ेबल Apple Glass विजेट्स (2x1, 3x1, 4x1, 2x2, Progress Ring, Bar Chart, Column Chart, Calendar, AI Control) मिलेंगे — किसी का भी साइज खींचकर बदल सकते हैं!',
+      );
+    }
+    if (_matchesAny(lower, ['ऐप के फीचर', 'a to z', 'app features', 'क्या-क्या है', 'कहाँ से क्या', 'formula', 'pyq', 'फॉर्मूला'])) {
+      return const OfflineAiReply(
+        text: '🗺️ Taskifyy का पूरा A-to-Z नक्शा:
+'
+            '• **Today टैब**: टास्क जोड़ें (+ बटन), स्वाइप से Complete/Skip, 1-Tap Fix Overdue, Mood/Energy, Focus Timer (25/5 व 50/10)।
+'
+            '• **Task Editor**: Title, Time, Category, Priority (Low/Normal/High/Critical), Checklist, **Formula**, **Notes**, **Link (URL)**, **PYQ Solve**, **8 Repeat Modes**, Advance Notification ON/OFF।
+'
+            '• **Calendar टैब**: किसी भी तारीख़ या पूरे साल का शेड्यूल व मासिक % देखें।
+'
+            '• **Insights टैब**: Study Time, Weekly/Monthly स्कोर और Category चार्ट।
+'
+            '• **Routines टैब**: Tech JE / 5 AM Club टेम्पलेट और Copy to Tomorrow।
+'
+            '• **Settings**: Notification Lead Time, PIN+Fingerprint Lock, JSON Backup/Restore, Monthly PDF Report, 100 Home Widgets!',
       );
     }
 
@@ -285,6 +330,46 @@ class OfflineAiEngine {
       await db.setSetting('notificationsEnabled', '1');
       await db.rescheduleAllReminders();
       return const OfflineAiReply(text: '🔔 सभी नोटिफिकेशन चालू कर दिए गए हैं!', dbChanged: true);
+    }
+    if (_matchesAny(lower, ['ओवरव्यू', 'overview', 'पूरा हाल', 'ऐप स्टेटस', 'app status'])) {
+      final ist = _nowIst();
+      final todayList = await db.getTasks(ist);
+      final done = todayList.where((r) => r['status'] == 'completed').length;
+      final pend = todayList.where((r) => r['status'] == 'pending').length;
+      final skip = todayList.where((r) => r['status'] == 'skipped').length;
+      final stk = await db.calculateCurrentStreak();
+      final notif = (await db.getSetting('notificationsEnabled') ?? '1') == '1' ? 'ON' : 'OFF';
+      final lead = await db.getSetting('notificationLeadTime') ?? '5';
+      return OfflineAiReply(
+        text: '🧭 **Taskifyy लाइव ओवरव्यू**:
+'
+            '• आज: $done पूरे, $pend बाकी, $skip स्किप (कुल ${todayList.length})
+'
+            '• स्ट्रीक: 🔥 $stk दिन | नोटिफिकेशन: $notif ($lead मिनट पहले)
+'
+            '• आप चाहें तो 10 दिन/15 दिन/पूरे साल का शेड्यूल देख सकते हैं या कोई भी टास्क बदलवा सकते हैं!',
+      );
+    }
+    if (_matchesAny(lower, ['रूटीन कॉपी', 'copy routine', 'copy to tomorrow', 'कल कॉपी', 'कल के लिए कॉपी'])) {
+      final today = _nowIst();
+      final tomorrow = today.add(const Duration(days: 1));
+      final list = await db.getTasks(today);
+      if (list.isEmpty) return const OfflineAiReply(text: 'आज कोई टास्क नहीं है जिसे कल कॉपी किया जाए।');
+      for (final t in list) {
+        await db.addTask(
+          date: tomorrow,
+          title: t['title'].toString(),
+          description: t['description']?.toString() ?? '',
+          startMinutes: t['startMinutes'] as int,
+          endMinutes: t['endMinutes'] as int?,
+          category: t['category'].toString(),
+          priority: t['priority'] as int,
+          notes: t['notes']?.toString() ?? '',
+          subtasks: t['subtasks']?.toString() ?? '',
+          playSound: false,
+        );
+      }
+      return OfflineAiReply(text: '📋 आज के ${list.length} टास्क कल के लिए कॉपी कर दिए गए हैं!', dbChanged: true);
     }
 
     // 6. Overdue Reschedule
@@ -534,8 +619,35 @@ class OfflineAiEngine {
       );
     }
 
-    // 13. List / Show Tasks
-    if (_matchesAny(lower, ['show', 'list', 'टास्क दिखाओ', 'बाकी टास्क', 'pending', 'आज के टास्क', 'कल के टास्क'])) {
+    // 13. List / Show Tasks (1 दिन, 10 दिन, 15 दिन, 1 महीना, या पूरे साल 365 दिन)
+    final multiDayMatch = RegExp(r'(?:अगले|next|आने वाले)?\s*(\d{1,3})\s*(?:दिन|दिनों|days?)').firstMatch(lower);
+    final wantsYear = _matchesAny(lower, ['पूरे साल', 'whole year', '365', 'साल भर', 'all year']);
+    if (multiDayMatch != null || wantsYear) {
+      final days = wantsYear ? 365 : (int.tryParse(multiDayMatch!.group(1)!) ?? 10).clamp(1, 365);
+      final start = _nowIst();
+      final end = start.add(Duration(days: days - 1));
+      final rows = await db.tasksBetween(start, end);
+      if (rows.isEmpty) {
+        return OfflineAiReply(text: '📅 अगले $days दिनों में अभी कोई टास्क शेड्यूल नहीं है। बताइए क्या शेड्यूल करूँ?');
+      }
+      final byDate = <String, List<Map<String, dynamic>>>{};
+      for (final r in rows) {
+        byDate.putIfAbsent(r['date'].toString(), () => []).add(r);
+      }
+      final buf = StringBuffer('📅 अगले $days दिनों का शेड्यूल (${rows.length} टास्क):\n');
+      var shownDays = 0;
+      for (final entry in byDate.entries) {
+        if (shownDays >= 15) {
+          buf.writeln('...और ${byDate.length - 15} और दिनों के टास्क मौजूद हैं।');
+          break;
+        }
+        buf.writeln('• **${entry.key}** (${entry.value.length}): ${entry.value.take(3).map((t) => '${_formatMinutes(t['startMinutes'] as int)} ${t['title']}').join(', ')}');
+        shownDays++;
+      }
+      return OfflineAiReply(text: buf.toString().trim());
+    }
+
+    if (_matchesAny(lower, ['show', 'list', 'टास्क दिखाओ', 'बाकी टास्क', 'pending', 'आज के टास्क', 'कल के टास्क', 'शेड्यूल दिखाओ'])) {
       final targetDate = _extractDateOrNull(lower) ?? _nowIst();
       final tasks = await db.getTasks(targetDate);
       final dateLabel = _dateLabel(targetDate);
@@ -573,6 +685,7 @@ class OfflineAiEngine {
       _parsePriorityFromInput(lower);
       _parseReminderFromInput(lower);
       _pendingSubtasks = _extractSubtasks(input);
+      _pendingNotes = _extractExtraNotes(input);
       _pendingCategory = await _detectExistingOrNamedCategory(input, lower) ?? _detectCategory(lower);
 
       final title = _extractCleanTaskTitle(input);
@@ -585,13 +698,17 @@ class OfflineAiEngine {
       return _finalizeOrAskDraft();
     }
 
-    // 15. सामान्य बातचीत (मोटिवेशनल दोस्त की तरह)
-    if (input.split(RegExp(r'\s+')).length <= 10 &&
+    // 15. सामान्य बातचीत (इंसान जैसी दोस्ताना बातचीत + मोटिवेशन)
+    if (input.split(RegExp(r'\s+')).length <= 14 &&
         !_matchesAny(lower, ['explain', 'derive', 'essay', 'निबंध', 'इतिहास', 'समीकरण', 'code', 'program'])) {
       _quoteIndex++;
-      return OfflineAiReply(
-        text: 'जी, मैं आपकी बात समझ रहा हूँ! ${_motivationalTail()} आप चाहें तो कोई सवाल पूछें, क्विज़ खेलें, या कोई नया टास्क शेड्यूल करवाएँ।',
-      );
+      final humanReplies = [
+        'हाँ बिल्कुल, मैं यहीं हूँ आपकी मदद के लिए! बताइए आज किस विषय या काम पर फोकस कर रहे हैं?',
+        'समझ गया दोस्त! थोड़ा-थोड़ा करके ही बड़े टारगेट पूरे होते हैं। ${_motivationalTail()}',
+        'अरे वाह, बढ़िया सोच है! क्या मैं इसमें से कुछ आपके आज या अगले 10 दिनों के रूटीन में सेट कर दूँ?',
+        'बिल्कुल सही कहा आपने! कभी भी दबाव महसूस हो तो मुझसे बात कर लिया करो—हम साथ मिलकर सब पूरा करेंगे!',
+      ];
+      return OfflineAiReply(text: humanReplies[_quoteIndex % humanReplies.length]);
     }
 
     return OfflineAiReply(
@@ -615,16 +732,17 @@ class OfflineAiEngine {
     } else {
       final days = <String>[];
       const map = {
-        'mon': 'Mon', 'सोम': 'Mon',
-        'tue': 'Tue', 'मंगल': 'Tue',
-        'wed': 'Wed', 'बुध': 'Wed',
-        'thu': 'Thu', 'गुरु': 'Thu', 'बृहस्पति': 'Thu',
-        'fri': 'Fri', 'शुक्र': 'Fri',
-        'sat': 'Sat', 'शनि': 'Sat',
-        'sun': 'Sun', 'रवि': 'Sun',
+        'monday': 'Mon', 'mon': 'Mon', 'सोमवार': 'Mon', 'सोम': 'Mon',
+        'tuesday': 'Tue', 'tue': 'Tue', 'मंगलवार': 'Tue', 'मंगल': 'Tue',
+        'wednesday': 'Wed', 'wed': 'Wed', 'बुधवार': 'Wed', 'बुध': 'Wed',
+        'thursday': 'Thu', 'thu': 'Thu', 'गुरुवार': 'Thu', 'बृहस्पतिवार': 'Thu',
+        'friday': 'Fri', 'fri': 'Fri', 'शुक्रवार': 'Fri', 'शुक्र': 'Fri',
+        'saturday': 'Sat', 'sat': 'Sat', 'शनिवार': 'Sat', 'शनि': 'Sat',
+        'sunday': 'Sun', 'sun': 'Sun', 'रविवार': 'Sun', 'रवि': 'Sun', 'संडे': 'Sun',
       };
       map.forEach((k, v) {
-        if (lower.contains(k) && !days.contains(v)) days.add(v);
+        final pat = RegExp('(^|\\s|[,/])' + RegExp.escape(k) + r'($|\s|[,/।!?])');
+        if (pat.hasMatch(lower) && !days.contains(v)) days.add(v);
       });
       if (days.isNotEmpty) {
         _pendingRepeatType = 'custom_days';
@@ -662,6 +780,17 @@ class OfflineAiEngine {
 
   void _parseReminderFromInput(String lower) {
     if (_hasReminderWord(lower)) _pendingReminder = _parseReminderValue(lower);
+  }
+
+  String _extractExtraNotes(String input) {
+    final notesParts = <String>[];
+    final linkM = RegExp(r'https?://\S+').firstMatch(input);
+    if (linkM != null) notesParts.add('Link: ${linkM.group(0)}');
+    final formM = RegExp(r'(?:formula|फॉर्मूला)\s*[:\-]\s*([^,;]+)', caseSensitive: false).firstMatch(input);
+    if (formM != null) notesParts.add('Formula: ${formM.group(1)!.trim()}');
+    final pyqM = RegExp(r'(\d+\s*pyqs?|pyq\s*solve)', caseSensitive: false).firstMatch(input);
+    if (pyqM != null) notesParts.add('PYQ: ${pyqM.group(0)!.trim()}');
+    return notesParts.join(' | ');
   }
 
   List<String> _extractSubtasks(String input) {

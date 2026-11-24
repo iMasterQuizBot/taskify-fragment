@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -13,7 +14,10 @@ import 'ai_orb_icon.dart';
 
 /// ~1cm रेडियस वाला फ्लोटिंग एनिमेटेड AI बबल:
 /// - ऊपर 3 छोटे बटन: [Offline] [API] [✕]
-/// - नीचे एनिमेटेड ग्लोइंग सर्कल (Hold to Speak + Drag anywhere + Tap to expand)
+/// - नीचे एनिमेटेड ग्लोइंग सर्कल:
+///   • दबाकर रखें (Hold) -> बाहर से ही वॉइस बात करें (Offline या API AI)
+///   • डबल क्लिक (Double Tap) -> पूरा LiveVoiceScreen इंटरफेस खोलें
+///   • ड्रैग (Drag) -> स्क्रीन पर कहीं भी ले जाएँ
 class FloatingAiBubble extends StatefulWidget {
   final AppDatabase db;
   final VoidCallback onDatabaseChanged;
@@ -128,6 +132,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
 
   Future<void> _onHoldStart() async {
     if (_isHolding) return;
+    HapticFeedback.mediumImpact();
     _isHolding = true;
     _recognized = '';
     final isApi = AppUiBridge.instance.bubbleIsApiMode.value;
@@ -168,6 +173,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
 
   Future<void> _onHoldEnd() async {
     if (!_isHolding) return;
+    HapticFeedback.lightImpact();
     _isHolding = false;
     final isApi = AppUiBridge.instance.bubbleIsApiMode.value;
 
@@ -216,6 +222,22 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
     if (mounted && !_isHolding) setState(() => _state = 'idle');
   }
 
+  Future<void> _expandToFullVoice() async {
+    HapticFeedback.selectionClick();
+    await _stopAll();
+    AppUiBridge.instance.hideBubble();
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LiveVoiceScreen(
+          db: widget.db,
+          onChanged: widget.onDatabaseChanged,
+        ),
+      ),
+    );
+  }
+
   AiOrbState get _orbState {
     switch (_state) {
       case 'speaking':
@@ -226,6 +248,21 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
         return AiOrbState.listening;
       default:
         return AiOrbState.idle;
+    }
+  }
+
+  String? get _statusChip {
+    switch (_state) {
+      case 'listening':
+        return 'सुन रहा हूँ…';
+      case 'thinking':
+        return 'सोच रहा हूँ…';
+      case 'speaking':
+        return 'बोल रहा हूँ…';
+      case 'connecting':
+        return 'जुड़ रहा है…';
+      default:
+        return null;
     }
   }
 
@@ -251,15 +288,36 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
         }
 
         final isApi = AppUiBridge.instance.bubbleIsApiMode.value;
+        final statusText = _statusChip;
 
         return Positioned(
           left: _pos.dx.clamp(6.0, size.width - 138),
-          top: _pos.dy.clamp(40.0, size.height - 150),
+          top: _pos.dy.clamp(40.0, size.height - 160),
           child: Material(
             color: Colors.transparent,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (statusText != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xE60B0E14),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: (isApi ? AppColors.violet : AppColors.cyan).withOpacity(0.6),
+                      ),
+                    ),
+                    child: Text(
+                      statusText,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
                 // ऊपर 3 छोटे बटन: [Offline] [API] [✕]
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -289,9 +347,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
                       ),
                       const SizedBox(width: 4),
                       GestureDetector(
-                        onTap: () {
-                          AppUiBridge.instance.hideBubble();
-                        },
+                        onTap: () => AppUiBridge.instance.hideBubble(),
                         child: Container(
                           width: 22,
                           height: 22,
@@ -307,7 +363,8 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                // ~1 cm रेडियस वाला एनिमेटेड सर्कल (Drag + Hold to Speak + Tap to Expand)
+                // ~1 cm रेडियस वाला एनिमेटेड सर्कल:
+                // Hold = बाहर से ही बात करें | Double Tap = पूरा Live Voice इंटरफेस खोलें | Drag = मूव करें
                 GestureDetector(
                   onPanUpdate: (d) {
                     setState(() {
@@ -316,20 +373,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
                   },
                   onLongPressStart: (_) => _onHoldStart(),
                   onLongPressEnd: (_) => _onHoldEnd(),
-                  onTap: () async {
-                    await _stopAll();
-                    AppUiBridge.instance.hideBubble();
-                    if (!mounted) return;
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => LiveVoiceScreen(
-                          db: widget.db,
-                          onChanged: widget.onDatabaseChanged,
-                        ),
-                      ),
-                    );
-                  },
+                  onDoubleTap: _expandToFullVoice,
                   child: Container(
                     width: 68,
                     height: 68,
@@ -337,14 +381,15 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: (isApi ? AppColors.violet : AppColors.cyan).withOpacity(0.45),
-                          blurRadius: 18,
-                          spreadRadius: 2,
+                          color: (isApi ? AppColors.violet : AppColors.cyan)
+                              .withOpacity(_isHolding ? 0.78 : 0.45),
+                          blurRadius: _isHolding ? 26 : 18,
+                          spreadRadius: _isHolding ? 4 : 2,
                         ),
                       ],
                     ),
                     child: AnimatedScale(
-                      scale: _isHolding ? (1.0 + (_micLevel * 0.15)) : 1.0,
+                      scale: _isHolding ? (1.06 + (_micLevel * 0.14)) : 1.0,
                       duration: const Duration(milliseconds: 90),
                       child: AiOrbIcon(
                         size: 68,

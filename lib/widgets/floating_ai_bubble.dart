@@ -343,10 +343,13 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
                         ),
                       ],
                     ),
-                    child: AiOrbIcon(
-                      size: 68,
-                      state: _orbState,
-                      level: _micLevel,
+                    child: AnimatedScale(
+                      scale: _isHolding ? (1.0 + (_micLevel * 0.15)) : 1.0,
+                      duration: const Duration(milliseconds: 90),
+                      child: AiOrbIcon(
+                        size: 68,
+                        state: _orbState,
+                      ),
                     ),
                   ),
                 ),

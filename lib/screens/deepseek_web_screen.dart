@@ -42,6 +42,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
   final GlobalKey<AiAssistantScreenState> _apiAiKey = GlobalKey<AiAssistantScreenState>();
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  static const MethodChannel _sttAudio = MethodChannel('taskify/stt_audio');
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _tts = FlutterTts();
 
@@ -276,7 +277,8 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
   Future<void> _toggleMic({required bool autoSend}) async {
     if (_isListening) {
       try {
-        await _speech.stop();
+        try { await _sttAudio.invokeMethod('muteBeep'); } catch (_) {}
+      await _speech.stop();
       } catch (_) {}
       if (mounted) {
         setState(() {
@@ -302,6 +304,7 @@ class _DeepSeekWebScreenState extends State<DeepSeekWebScreen>
         _isListening = true;
         _isListeningLive = autoSend;
       });
+      try { await _sttAudio.invokeMethod('muteBeep'); } catch (_) {}
       await _speech.listen(
         localeId: 'hi_IN',
         onResult: (result) {

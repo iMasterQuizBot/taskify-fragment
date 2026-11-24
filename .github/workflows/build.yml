@@ -170,15 +170,26 @@ jobs:
                           a.set(attr("name"), act)
 
           widget_labels = [
-              "01 Progress Ring", "02 Fire Streak", "03 Today 3 Tasks", "04 Next Up", "05 Focus 25m",
-              "06 Study Today", "07 Weekly Score", "08 Monthly Score", "09 Category Stats", "10 Quick Add Pill",
-              "11 AI Voice Orb", "12 Ask Offline AI", "13 Mood & Energy", "14 Mini Calendar", "15 Overdue Alert",
-              "16 Spaced Revision", "17 Daily Briefing", "18 Habit Ring", "19 Daily Quote", "20 Streak Shield",
-              "21 Mini Streak 1x1", "22 Mini % 1x1", "23 Mini Study 1x1", "24 Mini Due 1x1", "25 Wide Progress",
-              "26 Wide Next Task", "27 Agenda 5 Tasks", "28 Study Hub 4x3", "29 Done vs Pending", "30 Deep Work",
-              "31 Pomodoro 25/5", "32 Pomodoro 50/10", "33 Night Review", "34 Exam Target", "35 Priority Strip",
-              "36 API AI Pill", "37 DeepSeek Pill", "38 Mega Glass 4x4", "39 Trophy Today", "40 Mood + Date Pill",
-              "41 Offline AI Control", "42 API AI Control",
+              "01 Progress Ring 2x2", "02 Fire Streak 2x2", "03 Today Checklist 4x2", "04 Next Up 2x2", "05 Focus Timer 2x2",
+              "06 Study Time 2x1", "07 Weekly Bar Chart 3x2", "08 Monthly Score 2x2", "09 Categories Bar 3x1", "10 Quick Add 2x1",
+              "11 AI Voice Orb 2x2", "12 Ask AI Bar 3x1", "13 Mood & Energy 3x2", "14 Mini Calendar 3x2", "15 Overdue Alert 2x2",
+              "16 Spaced Revision 2x1", "17 Morning Briefing 3x2", "18 Habit Ring 2x2", "19 Inspiration 3x2", "20 Streak Shield 2x2",
+              "21 Mini Streak 2x1", "22 Mini Progress 2x1", "23 Mini Study 2x1", "24 Mini Overdue 2x1", "25 Wide Progress 4x1",
+              "26 Wide Next Task 4x1", "27 Agenda 5 Tasks 4x3", "28 Study Hub 4x3", "29 Done vs Pending 3x2", "30 Deep Work 3x1",
+              "31 Pomodoro 25/5 2x2", "32 Pomodoro 50/10 2x2", "33 Night Review 3x2", "34 Exam Target 3x2", "35 Priority Strip 4x1",
+              "36 API AI Pill 3x1", "37 DeepSeek Pill 3x1", "38 Mega Glass 4x4", "39 Trophy Today 2x2", "40 Mood + Date 4x1",
+              "41 Offline AI Control 2x2", "42 API AI Control 2x2", "43 Live Voice Quick 2x1", "44 Add Study Task 2x1", "45 Complete Top 3x1",
+              "46 Sync Widgets 2x1", "47 Critical Tasks 3x2", "48 High Priority Ring 2x2", "49 Today % Bar 4x1", "50 Streak Bar 3x1",
+              "51 Study Goal 2x2", "52 Weekly Column Chart 4x2", "53 Category Column Chart 4x2", "54 14-Day Trend Bars 4x2", "55 Morning Routine 3x2",
+              "56 Evening Routine 3x2", "57 PYQ Counter 2x2", "58 Formula & Notes 2x1", "59 Fix Overdue 3x1", "60 Focus Tracker 3x2",
+              "61 Next Task 2x1", "62 Pending Count 2x1", "63 Done Count 2x1", "64 Study Mins 2x1", "65 Mood Badge 2x1",
+              "66 Energy Bar 2x1", "67 Freeze Shield 2x1", "68 Quick Note 2x1", "69 Progress Bar 3x1", "70 Weekly Score Bar 3x1",
+              "71 Category Split 3x1", "72 Next 2 Tasks 3x1", "73 Day Timeline 4x1", "74 Study+Streak 4x1", "75 Action Dock 4x1",
+              "76 AI Command Bar 4x1", "77 Column Chart 7D 3x2", "78 Column Chart Cat 3x2", "79 Dual Ring 3x2", "80 Monthly Heatmap 4x2",
+              "81 Study Ring 2x2", "82 Work Ring 2x2", "83 Health Ring 2x2", "84 Exercise Ring 2x2", "85 Personal Ring 2x2",
+              "86 Learning Ring 2x2", "87 Tomorrow Preview 3x2", "88 Week Ahead 4x2", "89 Overdue List 3x2", "90 Completed Today 3x2",
+              "91 Consistency Bar 3x1", "92 Habit Matrix 4x2", "93 Daily Target 2x2", "94 Focus Streak 2x1", "95 Focus Bar 4x1",
+              "96 Motivation Bar 4x1", "97 Study Analytics 4x3", "98 Category Matrix 4x3", "99 Ultimate Glass 4x4", "100 AI Command Hub 4x3",
           ]
           existing_names = {r.get(attr("name")) for r in app.findall("receiver")}
           for idx, wlabel in enumerate(widget_labels, 1):

@@ -3,45 +3,79 @@
     android:id="@+id/wg_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/tg_bg_cyan"
+    android:background="@drawable/tg_bg_pill"
     android:orientation="vertical"
-    android:padding="11dp">
-    <TextView
-        android:id="@+id/wg_title"
+    android:padding="12dp">
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:text="CALENDAR"
-        android:textColor="#A7B0C0"
-        android:textSize="10sp"
-        android:textStyle="bold" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:id="@+id/wg_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Calendar"
+            android:textColor="#F8FAFC"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"/>
+        <TextView
+            android:id="@+id/wg_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LIVE"
+            android:textColor="#22D3EE"
+            android:textSize="10sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
     <ImageView
         android:id="@+id/wg_canvas"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:layout_marginTop="4dp"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:scaleType="fitCenter"
-        android:src="@drawable/tg_ring_preview" />
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:contentDescription="Widget Chart"/>
     <TextView
-        android:id="@+id/wg_big"
+        android:id="@+id/wg_body"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:text="23"
-        android:textColor="#F8FAFC"
-        android:textSize="16sp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/wg_sub"
+        android:text="Monthly grid"
+        android:textColor="#CBD5E1"
+        android:textSize="11sp"
+        android:maxLines="3"
+        android:ellipsize="end"/>
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:text="Mon • Nov"
-        android:textColor="#22D3EE"
-        android:textSize="10.5sp"
-        android:textStyle="bold" />
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp">
+        <TextView
+            android:id="@+id/wg_btn_1"
+            android:layout_width="0dp"
+            android:layout_height="26dp"
+            android:layout_weight="1"
+            android:background="@drawable/tg_btn_glass"
+            android:gravity="center"
+            android:text="Open"
+            android:textColor="#E2E8F0"
+            android:textSize="10sp"
+            android:textStyle="bold"/>
+        <TextView
+            android:id="@+id/wg_btn_2"
+            android:layout_width="0dp"
+            android:layout_height="26dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/tg_btn_cyan"
+            android:gravity="center"
+            android:text="Sync"
+            android:textColor="#22D3EE"
+            android:textSize="10sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
 </LinearLayout>

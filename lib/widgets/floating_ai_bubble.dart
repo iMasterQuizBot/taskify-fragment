@@ -33,6 +33,7 @@ class FloatingAiBubble extends StatefulWidget {
 }
 
 class _FloatingAiBubbleState extends State<FloatingAiBubble> {
+  static const MethodChannel _sttAudio = MethodChannel('taskify/stt_audio');
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
   late final OfflineAiEngine _offlineEngine = OfflineAiEngine(widget.db);
@@ -111,6 +112,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
   Future<void> _stopAll() async {
     _isHolding = false;
     try {
+      await _sttAudio.invokeMethod('muteBeep');
       await _stt.stop();
     } catch (_) {}
     try {
@@ -154,6 +156,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
       return;
     }
     if (mounted) setState(() => _state = 'listening');
+    try { await _sttAudio.invokeMethod('muteBeep'); } catch (_) {}
     await _stt.listen(
       localeId: 'hi_IN',
       listenFor: const Duration(minutes: 2),
@@ -189,6 +192,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
     }
 
     try {
+      await _sttAudio.invokeMethod('muteBeep');
       await _stt.stop();
     } catch (_) {}
     await Future.delayed(const Duration(milliseconds: 220));

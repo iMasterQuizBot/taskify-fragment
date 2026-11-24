@@ -820,10 +820,10 @@ class AiService {
         case 'manage_routine':
           final action = (args['action'] ?? 'list_templates').toString();
           if (action == 'list_templates') {
-            final tpls = await db.templates();
+            final tpls = await db.getTemplates();
             return {'templates': tpls.map((t) => t['name']).toList()};
           } else if (action == 'apply_template' && args['template_name'] != null) {
-            final tpls = await db.templates();
+            final tpls = await db.getTemplates();
             final targetName = args['template_name'].toString().toLowerCase();
             final found = tpls.where((t) => t['name'].toString().toLowerCase().contains(targetName)).toList();
             if (found.isEmpty) return {'error': 'टेम्पलेट नहीं मिला'};

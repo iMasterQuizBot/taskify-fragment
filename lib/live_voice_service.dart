@@ -470,7 +470,7 @@ class LiveVoiceService {
         case 'manage_routine':
           final rAct = (args['action'] ?? 'list_templates').toString();
           if (rAct == 'list_templates') {
-            final tpls = await db.templates();
+            final tpls = await db.getTemplates();
             return {'templates': tpls.map((t) => t['name']).toList()};
           } else if (rAct == 'copy_day') {
             final todayD = _nowIst();

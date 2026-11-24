@@ -211,18 +211,12 @@ class OfflineAiEngine {
     }
     if (_matchesAny(lower, ['ऐप के फीचर', 'a to z', 'app features', 'क्या-क्या है', 'कहाँ से क्या', 'formula', 'pyq', 'फॉर्मूला'])) {
       return const OfflineAiReply(
-        text: '🗺️ Taskifyy का पूरा A-to-Z नक्शा:
-'
-            '• **Today टैब**: टास्क जोड़ें (+ बटन), स्वाइप से Complete/Skip, 1-Tap Fix Overdue, Mood/Energy, Focus Timer (25/5 व 50/10)।
-'
-            '• **Task Editor**: Title, Time, Category, Priority (Low/Normal/High/Critical), Checklist, **Formula**, **Notes**, **Link (URL)**, **PYQ Solve**, **8 Repeat Modes**, Advance Notification ON/OFF।
-'
-            '• **Calendar टैब**: किसी भी तारीख़ या पूरे साल का शेड्यूल व मासिक % देखें।
-'
-            '• **Insights टैब**: Study Time, Weekly/Monthly स्कोर और Category चार्ट।
-'
-            '• **Routines टैब**: Tech JE / 5 AM Club टेम्पलेट और Copy to Tomorrow।
-'
+        text: '🗺️ Taskifyy का पूरा A-to-Z नक्शा:\n'
+            '• **Today टैब**: टास्क जोड़ें (+ बटन), स्वाइप से Complete/Skip, 1-Tap Fix Overdue, Mood/Energy, Focus Timer (25/5 व 50/10)।\n'
+            '• **Task Editor**: Title, Time, Category, Priority (Low/Normal/High/Critical), Checklist, **Formula**, **Notes**, **Link (URL)**, **PYQ Solve**, **8 Repeat Modes**, Advance Notification ON/OFF।\n'
+            '• **Calendar टैब**: किसी भी तारीख़ या पूरे साल का शेड्यूल व मासिक % देखें।\n'
+            '• **Insights टैब**: Study Time, Weekly/Monthly स्कोर और Category चार्ट।\n'
+            '• **Routines टैब**: Tech JE / 5 AM Club टेम्पलेट और Copy to Tomorrow।\n'
             '• **Settings**: Notification Lead Time, PIN+Fingerprint Lock, JSON Backup/Restore, Monthly PDF Report, 100 Home Widgets!',
       );
     }
@@ -341,12 +335,9 @@ class OfflineAiEngine {
       final notif = (await db.getSetting('notificationsEnabled') ?? '1') == '1' ? 'ON' : 'OFF';
       final lead = await db.getSetting('notificationLeadTime') ?? '5';
       return OfflineAiReply(
-        text: '🧭 **Taskifyy लाइव ओवरव्यू**:
-'
-            '• आज: $done पूरे, $pend बाकी, $skip स्किप (कुल ${todayList.length})
-'
-            '• स्ट्रीक: 🔥 $stk दिन | नोटिफिकेशन: $notif ($lead मिनट पहले)
-'
+        text: '🧭 **Taskifyy लाइव ओवरव्यू**:\n'
+            '• आज: $done पूरे, $pend बाकी, $skip स्किप (कुल ${todayList.length})\n'
+            '• स्ट्रीक: 🔥 $stk दिन | नोटिफिकेशन: $notif ($lead मिनट पहले)\n'
             '• आप चाहें तो 10 दिन/15 दिन/पूरे साल का शेड्यूल देख सकते हैं या कोई भी टास्क बदलवा सकते हैं!',
       );
     }

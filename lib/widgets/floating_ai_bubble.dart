@@ -45,6 +45,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
   bool _isHolding = false;
   String _state = 'idle'; // idle, connecting, listening, thinking, speaking
   double _micLevel = 0.0;
+  DateTime _lastLvlPaint = DateTime.fromMillisecondsSinceEpoch(0);
   String _recognized = '';
 
   @override
@@ -113,10 +114,10 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
     _isHolding = false;
     try {
       await _sttAudio.invokeMethod('muteBeep');
-      await _stt.stop();
+      await _stt.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     try {
-      await _tts.stop();
+      await _tts.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     if (_apiSvc != null) {
       try {
@@ -148,7 +149,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
     }
 
     try {
-      await _tts.stop();
+      await _tts.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     if (!_sttReady) _sttReady = await _stt.initialize();
     if (!_sttReady) {
@@ -162,6 +163,9 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
       listenFor: const Duration(minutes: 2),
       pauseFor: const Duration(minutes: 2),
       onSoundLevelChange: (lvl) {
+        final now = DateTime.now();
+        if (now.difference(_lastLvlPaint).inMilliseconds < 90) return;
+        _lastLvlPaint = now;
         if (mounted && _isHolding) {
           setState(() => _micLevel = (lvl.clamp(0, 12) / 12).toDouble());
         }
@@ -193,7 +197,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
 
     try {
       await _sttAudio.invokeMethod('muteBeep');
-      await _stt.stop();
+      await _stt.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     await Future.delayed(const Duration(milliseconds: 220));
     if (!mounted) return;
@@ -228,8 +232,8 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
 
   Future<void> _expandToFullVoice() async {
     HapticFeedback.selectionClick();
-    await _stopAll();
     AppUiBridge.instance.hideBubble();
+    _stopAll();
     if (!mounted) return;
     Navigator.push(
       context,

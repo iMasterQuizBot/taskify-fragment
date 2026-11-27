@@ -60,7 +60,8 @@ class _AiOrbIconState extends State<AiOrbIcon> with SingleTickerProviderStateMix
       AiOrbState.speaking => 0.92,
     };
 
-    return AnimatedBuilder(
+    return RepaintBoundary(
+      child: AnimatedBuilder(
       animation: _c,
       builder: (context, child) {
         final phase = _c.value * 2 * math.pi;
@@ -139,6 +140,7 @@ class _AiOrbIconState extends State<AiOrbIcon> with SingleTickerProviderStateMix
           ),
         );
       },
+      ),
     );
   }
 }

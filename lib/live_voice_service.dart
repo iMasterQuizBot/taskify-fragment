@@ -33,6 +33,7 @@ class LiveVoiceService {
   bool _ready = false;
   bool _muted = true; // Push-to-Talk: डिफ़ॉल्ट म्यूट, दबाने पर अनम्यूट
   bool _running = false;
+  bool _ignoreServerAudio = false;
 
   LiveVoiceService({
     required this.db,
@@ -47,6 +48,7 @@ class LiveVoiceService {
   /// यूज़र के गोला छोड़ते ही माइक बंद करके Gemini को तुरंत जवाब देने का संकेत भेजें
   void endUserTurn() {
     _muted = true;
+    _ignoreServerAudio = false;
     if (_ws != null && _ready && _running) {
       try {
         _ws!.sink.add(jsonEncode({
@@ -56,12 +58,14 @@ class LiveVoiceService {
     }
   }
 
-  /// AI की आवाज़ तुरंत रोकें
+  /// AI की आवाज़ तुरंत रोकें और यूज़र की आवाज़ सुनने के लिए तैयार हों (Instant Barge-In)
   Future<void> interrupt() async {
+    _ignoreServerAudio = true;
+    _muted = false;
     try {
-      await _pcm.invokeMethod('flush');
+      _pcm.invokeMethod('flush').catchError((_) {});
     } catch (_) {}
-    onState('idle');
+    onState('listening');
   }
 
   static const List<Map<String, dynamic>> _liveTools = [
@@ -574,6 +578,11 @@ class LiveVoiceService {
       if (content['interrupted'] == true) {
         _pcm.invokeMethod('flush');
         onState('idle');
+      }
+
+      if (_ignoreServerAudio || !_muted) {
+        // यूज़र अभी होल्ड करके बोल रहा है — पुराने जवाब का ऑडियो तुरंत ड्रॉप करें
+        return;
       }
 
       final turn = content['modelTurn'] as Map<String, dynamic>?;

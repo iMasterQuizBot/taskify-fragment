@@ -47,6 +47,7 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
   _VoiceMode _mode = _VoiceMode.offline;
   String _state = 'idle'; // idle, connecting, listening, thinking, speaking
   bool _isHolding = false;
+  int _turnEpoch = 0;
   bool _closed = false;
   bool _sttReady = false;
   double _micLevel = 0.0;
@@ -164,15 +165,15 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     });
   }
 
-  /// गोला दबाने पर (Hold Start): AI को चुप कराकर सिर्फ़ यूज़र की आवाज़ सुनें
+  /// गोला दबाने पर (Hold Start): AI बोलते-बोलते तुरंत चुप हो और बिना देरी के सुनने लगे (Instant Barge-In)
   Future<void> _onHoldStart() async {
     if (_closed || _isHolding) return;
+    _turnEpoch++;
     _isHolding = true;
     _lastRecognized = '';
 
     if (_mode == _VoiceMode.api) {
-      await _apiSvc.interrupt();
-      _apiSvc.setMuted(false);
+      _apiSvc.interrupt();
       if (mounted) {
         setState(() {
           _state = 'listening';
@@ -182,9 +183,12 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
       return;
     }
 
-    // Offline mode Push-to-Talk
+    // Offline mode Instant Barge-In: TTS तुरंत रोकें और बिना इंतज़ार किए सुनना शुरू करें
+    _tts.stop().catchError((_) {});
     try {
-      await _tts.stop();
+      if (_stt.isListening) {
+        await _stt.stop().timeout(const Duration(milliseconds: 250));
+      }
     } catch (_) {}
     if (!_sttReady) {
       _sttReady = await _stt.initialize();
@@ -263,10 +267,10 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
       return;
     }
 
-    await _handleOfflineUtterance(words);
+    await _handleOfflineUtterance(words, _turnEpoch);
   }
 
-  Future<void> _handleOfflineUtterance(String words) async {
+  Future<void> _handleOfflineUtterance(String words, int epoch) async {
     setState(() {
       _state = 'thinking';
       _micLevel = 0.0;
@@ -285,7 +289,8 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
       deepSeekQuery: reply.suggestDeepSeek ? reply.deepSeekQuery : null,
     );
 
-    if (!mounted || _closed || _mode != _VoiceMode.offline) return;
+    // अगर बीच में यूज़र ने फिर से होल्ड करके बोलना शुरू कर दिया हो, तो पुराना जवाब न बोलें
+    if (!mounted || _closed || _isHolding || epoch != _turnEpoch || _mode != _VoiceMode.offline) return;
     setState(() {
       _state = 'speaking';
       _statusLabel = 'बोल रहा हूँ… (नया सवाल पूछने के लिए गोला दबाएँ)';

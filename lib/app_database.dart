@@ -191,22 +191,71 @@ class AppDatabase {
 
   String dateKey(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 
-  Future<void> autoAllocateRollingHabits() async {
-    final repeatingTasks = await db.query('tasks', where: "repeatType != 'once' GROUP BY title");
+  bool isPastDate(DateTime date) {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(date.year, date.month, date.day);
+    return d.isBefore(today);
+  }
+
+  bool isPastDateKey(String key) {
+    try {
+      return isPastDate(DateTime.parse(key));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> autoAllocateRollingHabits() async {
+    final repeatingTasks = await db.rawQuery('''
+      SELECT t.*, MIN(t.date) AS firstDate
+      FROM tasks t
+      WHERE t.repeatType IN ('daily', 'weekdays', 'weekends', 'custom_days')
+      GROUP BY t.title
+    ''');
+    if (repeatingTasks.isEmpty) return;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final todayStr = dateKey(today);
+    final nowIso = now.toIso8601String();
+    final weekdayMap = {'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 7};
+
+    // पहले से मौजूद (date|title) एक बार में लोड करें ताकि 90x SELECT लूप से ऐप हैंग न हो
+    final existingRows = await db.query(
+      'tasks',
+      columns: ['date', 'title'],
+      where: 'date >= ?',
+      whereArgs: [todayStr],
+    );
+    final existingSet = existingRows.map((r) => '${r['date']}|${r['title']}').toSet();
+
+    final toInsert = <Map<String, dynamic>>[];
 
     for (final task in repeatingTasks) {
-      final repeatType = task['repeatType'] as String;
-      final repeatDays = task['repeatDays'] as String? ?? '';
-      final title = task['title'] as String;
+      final repeatType = task['repeatType'].toString();
+      final repeatDays = task['repeatDays']?.toString() ?? '';
+      final title = task['title'].toString();
+      final firstDateStr = (task['firstDate'] ?? task['date']).toString();
+      DateTime firstDate;
+      try {
+        firstDate = DateTime.parse(firstDateStr);
+      } catch (_) {
+        firstDate = today;
+      }
+      // पास्ट के टास्क से प्रेजेंट/फ्यूचर में कुछ न फैलाएँ
+      if (firstDate.isBefore(today)) {
+        // अगर यह टास्क सिर्फ़ पास्ट का है और आज या आगे कोई कॉपी नहीं है, तो छोड़ दें
+        final hasPresentOrFuture = existingRows.any((r) => r['title'] == title);
+        if (!hasPresentOrFuture) continue;
+      }
 
-      final weekdayMap = {'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 7};
+      final startFrom = firstDate.isAfter(today) ? firstDate : today;
       final targetWeekdays = repeatDays.split(',').map((d) => weekdayMap[d]).whereType<int>().toSet();
 
-      for (int i = 0; i < 90; i++) {
-        final targetDate = now.add(Duration(days: i));
+      for (int i = 0; i < 60; i++) {
+        final targetDate = startFrom.add(Duration(days: i));
         bool shouldAdd = false;
-
         if (repeatType == 'daily') {
           shouldAdd = true;
         } else if (repeatType == 'weekdays' && targetDate.weekday >= 1 && targetDate.weekday <= 5) {
@@ -218,31 +267,41 @@ class AppDatabase {
         }
 
         if (shouldAdd) {
-          final existing = await db.query(
-            'tasks',
-            where: 'date = ? AND title = ?',
-            whereArgs: [dateKey(targetDate), title],
-            limit: 1,
-          );
-          if (existing.isEmpty) {
-            await addTask(
-              date: targetDate,
-              title: title,
-              description: task['description']?.toString() ?? '',
-              startMinutes: task['startMinutes'] as int,
-              endMinutes: task['endMinutes'] as int?,
-              category: task['category'].toString(),
-              priority: task['priority'] as int,
-              repeatType: repeatType,
-              repeatDays: repeatDays,
-              notes: task['notes']?.toString() ?? '',
-              reminder: (task['reminder'] as int) == 1,
-              subtasks: task['subtasks']?.toString() ?? '',
-              playSound: false,
-            );
+          final dKey = dateKey(targetDate);
+          final sig = '$dKey|$title';
+          if (!existingSet.contains(sig)) {
+            existingSet.add(sig);
+            toInsert.add({
+              'date': dKey,
+              'title': title,
+              'description': task['description']?.toString() ?? '',
+              'startMinutes': task['startMinutes'] as int,
+              'endMinutes': task['endMinutes'] as int?,
+              'category': task['category'].toString(),
+              'priority': task['priority'] as int,
+              'status': 'pending',
+              'repeatType': repeatType,
+              'repeatDays': repeatDays,
+              'notes': task['notes']?.toString() ?? '',
+              'reminder': (task['reminder'] as int) == 1 ? 1 : 0,
+              'subtasks': task['subtasks']?.toString() ?? '',
+              'attachmentPath': task['attachmentPath']?.toString() ?? '',
+              'createdAt': nowIso,
+              'updatedAt': nowIso,
+            });
           }
         }
       }
+    }
+
+    if (toInsert.isNotEmpty) {
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (final row in toInsert) {
+          batch.insert('tasks', row);
+        }
+        await batch.commit(noResult: true);
+      });
     }
   }
 
@@ -321,6 +380,55 @@ class AppDatabase {
     return id;
   }
 
+  /// एक ही ट्रांज़ैक्शन में कई दिनों के टास्क तेज़ी से सेव करता है (हैंग/लैग से बचाव)
+  /// और नोटिफिकेशन सिर्फ़ अगले 7 दिनों के लिए शेड्यूल करता है।
+  Future<void> addTasksBatch(List<Map<String, dynamic>> items) async {
+    if (items.isEmpty) return;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final nowIso = now.toIso8601String();
+    final scheduledIds = <({int id, String title, DateTime date, int startMinutes})>[];
+
+    await db.transaction((txn) async {
+      for (final item in items) {
+        final date = item['date'] as DateTime;
+        final reminder = item['reminder'] == true;
+        final id = await txn.insert('tasks', {
+          'date': dateKey(date),
+          'title': item['title'].toString(),
+          'description': (item['description'] ?? '').toString(),
+          'startMinutes': item['startMinutes'] as int,
+          'endMinutes': item['endMinutes'] as int?,
+          'category': (item['category'] ?? 'Other').toString(),
+          'priority': (item['priority'] ?? 1) as int,
+          'status': 'pending',
+          'repeatType': (item['repeatType'] ?? 'once').toString(),
+          'repeatDays': (item['repeatDays'] ?? '').toString(),
+          'notes': (item['notes'] ?? '').toString(),
+          'reminder': reminder ? 1 : 0,
+          'subtasks': (item['subtasks'] ?? '').toString(),
+          'attachmentPath': (item['attachmentPath'] ?? '').toString(),
+          'createdAt': nowIso,
+          'updatedAt': nowIso,
+        });
+        final dOnly = DateTime(date.year, date.month, date.day);
+        final diff = dOnly.difference(today).inDays;
+        if (reminder && diff >= 0 && diff <= 7) {
+          scheduledIds.add((
+            id: id,
+            title: item['title'].toString(),
+            date: date,
+            startMinutes: item['startMinutes'] as int,
+          ));
+        }
+      }
+    });
+
+    for (final s in scheduledIds) {
+      await _scheduleTaskNotification(s.id, s.title, s.date, s.startMinutes);
+    }
+  }
+
   Future<void> updateTask(
     int id, {
     required String title,
@@ -379,16 +487,9 @@ class AppDatabase {
     String subtasks = '',
     bool reminder = false,
   }) async {
+    // पास्ट की तारीख़ से कभी भी प्रेजेंट या फ्यूचर को एडिट न करें
+    if (isPastDate(fromDate)) return;
     final fromDateStr = dateKey(fromDate);
-
-    // 1. सबसे महत्वपूर्ण फिक्स: पास्ट के टास्क का रिपीट बंद करें
-    // ताकि पुराना टाइटल आगे के दिनों में अपने आप जनरेट न हो
-    await db.update(
-      'tasks',
-      {'repeatType': 'once'},
-      where: 'title = ? AND date < ?',
-      whereArgs: [originalTitle, fromDateStr],
-    );
 
     // 2. अगर टाइटल बदला है, तो फ्यूचर में नए टाइटल के डुप्लीकेट टास्क डिलीट करें
     if (originalTitle != newTitle) {
@@ -441,6 +542,11 @@ class AppDatabase {
   }
 
   Future<void> updateStatus(int id, String status) async {
+    final existing = await db.query('tasks', columns: ['date'], where: 'id = ?', whereArgs: [id], limit: 1);
+    if (existing.isNotEmpty && isPastDateKey(existing.first['date'].toString())) {
+      // पास्ट के टास्क का स्टेटस (Completed आदि) नहीं बदला जा सकता
+      return;
+    }
     await db.update(
       'tasks',
       {
@@ -567,20 +673,29 @@ class AppDatabase {
   Future<String> exportJson() async {
     final tasks = await allTasks();
     final cats = await categories();
-    final settings = await db.query('settings');
     final tmps = await getTemplates();
-    final aiMsgs = await db.query('ai_messages', orderBy: 'id ASC');
     final moods = await db.query('mood_logs', orderBy: 'date DESC');
+    final rawSettings = await db.query('settings');
+    const excludedKeys = {
+      'aiProvider',
+      'geminiModel',
+      'deepseekModel',
+      'liveModel',
+      'liveVoice',
+      'aiAssistantName',
+    };
+    final safeSettings = rawSettings.where((s) => !excludedKeys.contains(s['key']?.toString())).toList();
 
+    // केवल टास्क (पास्ट, प्रेजेंट, फ्यूचर) और रूटीन डेटा एक्सपोर्ट होता है — Offline AI / API AI चैट हिस्ट्री नहीं
     final backup = {
-      'app': 'Taskify',
-      'version': 9,
+      'app': 'Taskifyy',
+      'version': 10,
+      'exportType': 'tasks_only',
       'createdAt': DateTime.now().toIso8601String(),
       'tasks': tasks,
       'categories': cats,
       'templates': tmps,
-      'settings': settings,
-      'ai_messages': aiMsgs,
+      'settings': safeSettings,
       'mood_logs': moods,
     };
     return const JsonEncoder.withIndent('  ').convert(backup);
@@ -693,6 +808,11 @@ class AppDatabase {
 
   Future<void> _scheduleTaskNotification(int id, String title, DateTime date, int startMinutes) async {
     try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final target = DateTime(date.year, date.month, date.day);
+      final diffDays = target.difference(today).inDays;
+      if (diffDays < 0 || diffDays > 7) return;
       final leadStr = await getSetting('notificationLeadTime');
       final leadMinutes = int.tryParse(leadStr ?? '5') ?? 5;
       final enabled = (await getSetting('notificationsEnabled')) != '0';
@@ -714,11 +834,13 @@ class AppDatabase {
 
   /// ऐप खुलने पर आने वाले सभी रिमाइंडर फिर से शेड्यूल करता है (रीबूट/अपडेट के बाद भी)।
   Future<void> rescheduleAllReminders() async {
-    final today = dateKey(DateTime.now());
+    final now = DateTime.now();
+    final today = dateKey(now);
+    final limit7 = dateKey(now.add(const Duration(days: 7)));
     final rows = await db.query(
       'tasks',
-      where: "reminder = 1 AND status != 'completed' AND date >= ?",
-      whereArgs: [today],
+      where: "reminder = 1 AND status != 'completed' AND date >= ? AND date <= ?",
+      whereArgs: [today, limit7],
     );
     for (final row in rows) {
       final startMinutes = row['startMinutes'] as int;

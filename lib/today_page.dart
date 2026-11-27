@@ -113,7 +113,24 @@ class TodayPageState extends State<TodayPage> with AutomaticKeepAliveClientMixin
     if (result == true) widget.onChanged();
   }
 
+  bool get isPastDate {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(widget.date.year, widget.date.month, widget.date.day);
+    return d.isBefore(today);
+  }
+
   Future<void> changeTaskStatus(int taskId, String nextStatus, {Offset? tapPosition}) async {
+    if (isPastDate) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('पास्ट (Past) के टास्क को Complete नहीं किया जा सकता — आप टास्क खोलकर सिर्फ़ Notes जोड़ सकते हैं।'),
+          ),
+        );
+      }
+      return;
+    }
     if (nextStatus == 'completed') {
       HapticFeedback.mediumImpact();
       if (tapPosition != null) {
@@ -157,10 +174,11 @@ class TodayPageState extends State<TodayPage> with AutomaticKeepAliveClientMixin
             onPressed: () => Navigator.pop(context, 'only_today'),
             child: const Text('Only Today'),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'all_future'),
-            child: const Text('Include Future Too'),
-          ),
+          if (!isPastDate)
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'all_future'),
+              child: const Text('Include Future Too'),
+            ),
         ],
       ),
     );
@@ -203,10 +221,11 @@ class TodayPageState extends State<TodayPage> with AutomaticKeepAliveClientMixin
             onPressed: () => Navigator.pop(context, 'only_today'),
             child: const Text('Only This Day'),
           ),
-          FilledButton.tonal(
-            onPressed: () => Navigator.pop(context, 'all_future'),
-            child: const Text('All Future Tasks'),
-          ),
+          if (!isPastDate)
+            FilledButton.tonal(
+              onPressed: () => Navigator.pop(context, 'all_future'),
+              child: const Text('All Future Tasks'),
+            ),
         ],
       ),
     );

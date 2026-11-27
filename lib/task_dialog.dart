@@ -44,6 +44,7 @@ class _TaskDialogState extends State<TaskDialog> {
   List<Map<String, dynamic>> subtasks = [];
 
   bool applyToAllFuture = false;
+  bool _saving = false;
 
   // चेक करने के लिए कि तारीख पास्ट की है या नहीं
   bool get isPastDate {
@@ -95,10 +96,49 @@ class _TaskDialogState extends State<TaskDialog> {
   Future<void> load() async {
     final result = await widget.db.categories();
     if (widget.task == null) {
-      final savedStart = await widget.db.getSetting('startMinutes');
-      final parsedStart = int.tryParse(savedStart ?? '');
-      if (parsedStart != null && mounted) {
-        setState(() => startTime = minutesToTime(parsedStart.clamp(0, 1439)));
+      bool appliedPreset = false;
+      final presetRaw = await widget.db.getSetting('lastTaskPreset');
+      if (presetRaw != null && presetRaw.isNotEmpty) {
+        try {
+          final p = jsonDecode(presetRaw) as Map<String, dynamic>;
+          final prevStart = int.tryParse('${p['startMinutes']}') ?? 360;
+          final prevEnd = p['endMinutes'] == null ? null : int.tryParse('${p['endMinutes']}');
+          final duration = (prevEnd != null && prevEnd > prevStart) ? (prevEnd - prevStart) : 60;
+          final nextStart = (prevEnd ?? (prevStart + 60)) % 1440;
+          final nextEnd = (nextStart + duration) <= 1439 ? (nextStart + duration) : null;
+
+          if (mounted) {
+            setState(() {
+              startTime = minutesToTime(nextStart.clamp(0, 1439));
+              endTime = nextEnd != null ? minutesToTime(nextEnd) : null;
+              if (p['category'] != null && p['category'].toString().isNotEmpty) {
+                category = p['category'].toString();
+              }
+              priority = (int.tryParse('${p['priority'] ?? 1}') ?? 1).clamp(1, 4);
+              reminder = p['reminder'] == true;
+              if (!isPastDate) {
+                final rt = (p['repeatType'] ?? 'once').toString();
+                repeatType = rt == 'custom_dates' ? 'once' : rt;
+                selectedCustomDays.clear();
+                final rd = (p['repeatDays'] ?? '').toString();
+                if (rd.isNotEmpty) {
+                  selectedCustomDays.addAll(rd.split(',').where((e) => e.isNotEmpty));
+                }
+              } else {
+                repeatType = 'once';
+              }
+            });
+          }
+          appliedPreset = true;
+        } catch (_) {}
+      }
+
+      if (!appliedPreset) {
+        final savedStart = await widget.db.getSetting('startMinutes');
+        final parsedStart = int.tryParse(savedStart ?? '');
+        if (parsedStart != null && mounted) {
+          setState(() => startTime = minutesToTime(parsedStart.clamp(0, 1439)));
+        }
       }
     }
 
@@ -206,6 +246,7 @@ class _TaskDialogState extends State<TaskDialog> {
   }
 
   Future<void> save() async {
+    if (_saving) return;
     final title = titleController.text.trim();
 
     if (title.isEmpty) {
@@ -218,251 +259,173 @@ class _TaskDialogState extends State<TaskDialog> {
       return;
     }
 
-    if (repeatType == 'custom_days' && selectedCustomDays.isEmpty) {
+    // पास्ट की तारीख़ में रिपीट मोड हमेशा 'once' रहेगा ताकि Present/Future पर कोई असर न जाए
+    final effectiveRepeat = isPastDate ? 'once' : repeatType;
+
+    if (effectiveRepeat == 'custom_days' && selectedCustomDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select at least one day for Custom Days.')));
       return;
     }
 
-    if (repeatType == 'custom_dates' && selectedCustomDateKeys.isEmpty) {
+    if (effectiveRepeat == 'custom_dates' && selectedCustomDateKeys.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select at least one date from the calendar.')));
       return;
     }
 
-    // टाइम कॉनफ़्लिक्ट / ओवरलैप चेक
-    final existingTasks = await widget.db.getTasks(widget.date);
-    final newStart = startMinutes;
-    final newEnd = endMinutes ?? (startMinutes + 30);
-    final editingId = widget.task?['id'];
-    Map<String, dynamic>? conflict;
-    for (final t in existingTasks) {
-      if (editingId != null && t['id'] == editingId) continue;
-      if (t['status'] == 'skipped') continue;
-      final tStart = t['startMinutes'] as int;
-      final tEnd = (t['endMinutes'] as int?) ?? (tStart + 30);
-      if (newStart < tEnd && newEnd > tStart) {
-        conflict = t;
-        break;
+    setState(() => _saving = true);
+    try {
+      // टाइम कॉनफ़्लिक्ट / ओवरलैप चेक
+      final existingTasks = await widget.db.getTasks(widget.date);
+      final newStart = startMinutes;
+      final newEnd = endMinutes ?? (startMinutes + 30);
+      final editingId = widget.task?['id'];
+      Map<String, dynamic>? conflict;
+      for (final t in existingTasks) {
+        if (editingId != null && t['id'] == editingId) continue;
+        if (t['status'] == 'skipped') continue;
+        final tStart = t['startMinutes'] as int;
+        final tEnd = (t['endMinutes'] as int?) ?? (tStart + 30);
+        if (newStart < tEnd && newEnd > tStart) {
+          conflict = t;
+          break;
+        }
       }
-    }
-    if (conflict != null && mounted) {
-      final proceed = await confirm(
-        context,
-        'Time Overlap Detected',
-        '"${conflict['title']}" (${taskTime(conflict)}) पहले से इस समय पर शेड्यूल है। क्या आप फिर भी सेव करना चाहते हैं?',
-      );
-      if (!proceed) return;
-    }
-
-    final desc = descriptionController.text.trim();
-    final note = notesController.text.trim();
-    final subtasksJson = jsonEncode(subtasks);
-    final attach = attachmentController.text.trim();
-    final repeatDaysString = selectedCustomDays.join(',');
-
-    if (widget.task != null) {
-      // अगर पास्ट की तारीख है, तो जबरदस्ती future apply को false कर दें
-      bool finalApplyToFuture = isPastDate ? false : applyToAllFuture;
-
-      if (finalApplyToFuture) {
-        await widget.db.updateFutureTasks(
-          widget.task!['title'].toString(),
-          widget.date,
-          newTitle: title,
-          description: desc,
-          startMinutes: startMinutes,
-          endMinutes: endMinutes,
-          category: category,
-          priority: priority,
-          repeatType: repeatType,
-          repeatDays: repeatDaysString,
-          notes: note,
-          subtasks: subtasksJson,
-          reminder: reminder,
+      if (conflict != null && mounted) {
+        final proceed = await confirm(
+          context,
+          'Time Overlap Detected',
+          '"${conflict['title']}" (${taskTime(conflict)}) पहले से इस समय पर शेड्यूल है। क्या आप फिर भी सेव करना चाहते हैं?',
         );
+        if (!proceed) return;
+      }
+
+      final desc = descriptionController.text.trim();
+      final note = notesController.text.trim();
+      final subtasksJson = jsonEncode(subtasks);
+      final attach = attachmentController.text.trim();
+      final repeatDaysString = selectedCustomDays.join(',');
+
+      if (widget.task != null) {
+        // पास्ट में कभी भी Future पर असर नहीं; Present में सिर्फ Present+Future; Future में सिर्फ उस Future तारीख़ से आगे
+        final finalApplyToFuture = isPastDate ? false : applyToAllFuture;
+
+        if (finalApplyToFuture) {
+          await widget.db.updateFutureTasks(
+            widget.task!['title'].toString(),
+            widget.date,
+            newTitle: title,
+            description: desc,
+            startMinutes: startMinutes,
+            endMinutes: endMinutes,
+            category: category,
+            priority: priority,
+            repeatType: effectiveRepeat,
+            repeatDays: repeatDaysString,
+            notes: note,
+            subtasks: subtasksJson,
+            reminder: reminder,
+          );
+        } else {
+          await widget.db.updateTask(
+            widget.task!['id'],
+            title: title,
+            description: desc,
+            startMinutes: startMinutes,
+            endMinutes: endMinutes,
+            category: category,
+            priority: priority,
+            notes: note,
+            reminder: reminder,
+            subtasks: subtasksJson,
+            attachmentPath: attach,
+          );
+        }
       } else {
-        await widget.db.updateTask(
-          widget.task!['id'],
-          title: title,
-          description: desc,
-          startMinutes: startMinutes,
-          endMinutes: endMinutes,
-          category: category,
-          priority: priority,
-          notes: note,
-          reminder: reminder,
-          subtasks: subtasksJson,
-          attachmentPath: attach,
-        );
-      }
-    } else {
-      if (repeatType == 'once') {
-        await widget.db.addTask(
-          date: widget.date,
-          title: title,
-          description: desc,
-          startMinutes: startMinutes,
-          endMinutes: endMinutes,
-          category: category,
-          priority: priority,
-          repeatType: repeatType,
-          notes: note,
-          reminder: reminder,
-          subtasks: subtasksJson,
-          attachmentPath: attach,
-        );
-      } else if (repeatType == 'alternate') {
-        for (int i = 0; i < 60; i += 2) {
-          final target = widget.date.add(Duration(days: i));
-          await widget.db.addTask(
-            date: target,
-            title: title,
-            description: desc,
-            startMinutes: startMinutes,
-            endMinutes: endMinutes,
-            category: category,
-            priority: priority,
-            repeatType: repeatType,
-            notes: note,
-            reminder: reminder,
-            subtasks: subtasksJson,
-            attachmentPath: attach,
-            playSound: false,
-          );
-        }
-      } else if (repeatType == 'daily') {
-        for (int i = 0; i < 60; i++) {
-          final target = widget.date.add(Duration(days: i));
-          await widget.db.addTask(
-            date: target,
-            title: title,
-            description: desc,
-            startMinutes: startMinutes,
-            endMinutes: endMinutes,
-            category: category,
-            priority: priority,
-            repeatType: repeatType,
-            notes: note,
-            reminder: reminder,
-            subtasks: subtasksJson,
-            attachmentPath: attach,
-            playSound: false,
-          );
-        }
-      } else if (repeatType == 'weekdays') {
-        for (int i = 0; i < 60; i++) {
-          final target = widget.date.add(Duration(days: i));
-          if (target.weekday >= 1 && target.weekday <= 5) {
-            await widget.db.addTask(
-              date: target,
-              title: title,
-              description: desc,
-              startMinutes: startMinutes,
-              endMinutes: endMinutes,
-              category: category,
-              priority: priority,
-              repeatType: repeatType,
-              notes: note,
-              reminder: reminder,
-              subtasks: subtasksJson,
-              attachmentPath: attach,
-              playSound: false,
-            );
-          }
-        }
-      } else if (repeatType == 'weekends') {
-        for (int i = 0; i < 60; i++) {
-          final target = widget.date.add(Duration(days: i));
-          if (target.weekday == 6 || target.weekday == 7) {
-            await widget.db.addTask(
-              date: target,
-              title: title,
-              description: desc,
-              startMinutes: startMinutes,
-              endMinutes: endMinutes,
-              category: category,
-              priority: priority,
-              repeatType: repeatType,
-              notes: note,
-              reminder: reminder,
-              subtasks: subtasksJson,
-              attachmentPath: attach,
-              playSound: false,
-            );
-          }
-        }
-      } else if (repeatType == 'custom_days') {
-        final weekdayMap = {'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 7};
-        final targetWeekdays = selectedCustomDays.map((d) => weekdayMap[d]).whereType<int>().toSet();
+        final batchItems = <Map<String, dynamic>>[];
 
-        for (int i = 0; i < 60; i++) {
-          final target = widget.date.add(Duration(days: i));
-          if (targetWeekdays.contains(target.weekday)) {
-            await widget.db.addTask(
-              date: target,
-              title: title,
-              description: desc,
-              startMinutes: startMinutes,
-              endMinutes: endMinutes,
-              category: category,
-              priority: priority,
-              repeatType: repeatType,
-              repeatDays: repeatDaysString,
-              notes: note,
-              reminder: reminder,
-              subtasks: subtasksJson,
-              attachmentPath: attach,
-              playSound: false,
-            );
+        void enqueue(DateTime d, {String? customTitle, String? forcedRepeat}) {
+          batchItems.add({
+            'date': d,
+            'title': customTitle ?? title,
+            'description': desc,
+            'startMinutes': startMinutes,
+            'endMinutes': endMinutes,
+            'category': category,
+            'priority': priority,
+            'repeatType': forcedRepeat ?? effectiveRepeat,
+            'repeatDays': repeatDaysString,
+            'notes': note,
+            'reminder': reminder,
+            'subtasks': subtasksJson,
+            'attachmentPath': attach,
+          });
+        }
+
+        if (effectiveRepeat == 'once') {
+          enqueue(widget.date);
+        } else if (effectiveRepeat == 'alternate') {
+          for (int i = 0; i < 60; i += 2) {
+            enqueue(widget.date.add(Duration(days: i)));
+          }
+        } else if (effectiveRepeat == 'daily') {
+          for (int i = 0; i < 60; i++) {
+            enqueue(widget.date.add(Duration(days: i)));
+          }
+        } else if (effectiveRepeat == 'weekdays') {
+          for (int i = 0; i < 60; i++) {
+            final target = widget.date.add(Duration(days: i));
+            if (target.weekday >= 1 && target.weekday <= 5) enqueue(target);
+          }
+        } else if (effectiveRepeat == 'weekends') {
+          for (int i = 0; i < 60; i++) {
+            final target = widget.date.add(Duration(days: i));
+            if (target.weekday == 6 || target.weekday == 7) enqueue(target);
+          }
+        } else if (effectiveRepeat == 'custom_days') {
+          final weekdayMap = {'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 7};
+          final targetWeekdays = selectedCustomDays.map((d) => weekdayMap[d]).whereType<int>().toSet();
+          for (int i = 0; i < 60; i++) {
+            final target = widget.date.add(Duration(days: i));
+            if (targetWeekdays.contains(target.weekday)) enqueue(target);
+          }
+        } else if (effectiveRepeat == 'custom_dates') {
+          final sortedKeys = selectedCustomDateKeys.toList()..sort();
+          for (final key in sortedKeys) {
+            final parts = key.split('-').map(int.parse).toList();
+            enqueue(DateTime(parts[0], parts[1], parts[2]));
+          }
+        } else if (effectiveRepeat == 'spaced') {
+          for (final offset in [0, 1, 3, 7, 21]) {
+            final target = widget.date.add(Duration(days: offset));
+            final suffix = offset == 0 ? '' : ' (Rev +${offset}d)';
+            enqueue(target, customTitle: '$title$suffix', forcedRepeat: 'once');
           }
         }
-      } else if (repeatType == 'custom_dates') {
-        final sortedKeys = selectedCustomDateKeys.toList()..sort();
-        for (final key in sortedKeys) {
-          final parts = key.split('-').map(int.parse).toList();
-          final target = DateTime(parts[0], parts[1], parts[2]);
-          await widget.db.addTask(
-            date: target,
-            title: title,
-            description: desc,
-            startMinutes: startMinutes,
-            endMinutes: endMinutes,
-            category: category,
-            priority: priority,
-            repeatType: repeatType,
-            notes: note,
-            reminder: reminder,
-            subtasks: subtasksJson,
-            attachmentPath: attach,
-            playSound: false,
-          );
-        }
-      } else if (repeatType == 'spaced') {
-        for (final offset in [0, 1, 3, 7, 21]) {
-          final target = widget.date.add(Duration(days: offset));
-          final suffix = offset == 0 ? '' : ' (Rev +${offset}d)';
-          await widget.db.addTask(
-            date: target,
-            title: '$title$suffix',
-            description: desc,
-            startMinutes: startMinutes,
-            endMinutes: endMinutes,
-            category: category,
-            priority: priority,
-            repeatType: 'once',
-            notes: note,
-            reminder: reminder,
-            subtasks: subtasksJson,
-            attachmentPath: attach,
-            playSound: false,
-          );
-        }
+
+        await widget.db.addTasksBatch(batchItems);
+
+        // अगले टास्क के लिए स्मार्ट प्रीसेट सेव करें (Time, Category, Priority, Repeat, Reminder)
+        await widget.db.setSetting(
+          'lastTaskPreset',
+          jsonEncode({
+            'startMinutes': startMinutes,
+            'endMinutes': endMinutes,
+            'category': category,
+            'priority': priority,
+            'repeatType': effectiveRepeat,
+            'repeatDays': repeatDaysString,
+            'reminder': reminder,
+          }),
+        );
       }
-      await widget.db.autoAllocateRollingHabits();
+
+      HapticFeedback.selectionClick();
+      SoundService.play('taskCreated');
+      FocusManager.instance.primaryFocus?.unfocus();
+      if (mounted) Navigator.pop(context, true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-
-    HapticFeedback.selectionClick();
-    SoundService.play('taskCreated');
-    if (mounted) Navigator.pop(context, true);
   }
 
   Widget _timeBox({required String title, required String value, required IconData icon, required VoidCallback onTap}) {
@@ -698,6 +661,21 @@ class _TaskDialogState extends State<TaskDialog> {
                 },
               ),
               const SizedBox(height: 10),
+              if (isPastDate)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.amber.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.amber.withOpacity(0.35)),
+                  ),
+                  child: const Text(
+                    'Past Date: बदलाव सिर्फ़ इसी तारीख़ पर लागू होगा (Present/Future पर कोई असर नहीं)।',
+                    style: TextStyle(color: AppColors.amber, fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              if (!isPastDate)
               DropdownButtonFormField<String>(
                 value: repeatType,
                 dropdownColor: AppColors.surfaceElevated,
@@ -716,7 +694,7 @@ class _TaskDialogState extends State<TaskDialog> {
                   if (val != null) setState(() => repeatType = val);
                 },
               ),
-              if (repeatType == 'custom_days') ...[
+              if (!isPastDate && repeatType == 'custom_days') ...[
                 const SizedBox(height: 10),
                 const Text('Select Days of Week:', style: TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 6),
@@ -749,7 +727,7 @@ class _TaskDialogState extends State<TaskDialog> {
                   }).toList(),
                 ),
               ],
-              if (repeatType == 'custom_dates') ...[
+              if (!isPastDate && repeatType == 'custom_dates') ...[
                 _buildInlineMultiDatePicker(),
               ],
               const SizedBox(height: 10),
@@ -823,7 +801,10 @@ class _TaskDialogState extends State<TaskDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            Navigator.pop(context);
+          },
           child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
         ),
         Container(
@@ -834,9 +815,11 @@ class _TaskDialogState extends State<TaskDialog> {
               shadowColor: Colors.transparent,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
             ),
-            onPressed: save,
-            icon: const Icon(Icons.check_rounded, color: Colors.white, size: 18),
-            label: const Text('Save Task', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.white)),
+            onPressed: _saving ? null : save,
+            icon: _saving
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.check_rounded, color: Colors.white, size: 18),
+            label: Text(_saving ? 'Saving...' : 'Save Task', style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.white)),
           ),
         ),
       ],

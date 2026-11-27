@@ -68,8 +68,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      FocusManager.instance.primaryFocus?.unfocus();
-      SystemChannels.textInput.invokeMethod('TextInput.hide').catchError((_) {});
       globalRefresh();
     }
   }
@@ -299,7 +297,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       extendBody: true,
       body: Stack(
         children: [

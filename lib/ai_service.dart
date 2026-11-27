@@ -608,23 +608,24 @@ class AiService {
               );
             }
           } else {
-            await db.addTask(
-              date: date,
-              title: title,
-              description: desc,
-              startMinutes: start,
-              endMinutes: end,
-              category: cat,
-              priority: pri,
-              repeatType: rep,
-              repeatDays: repDays,
-              notes: notes,
-              reminder: rem,
-              subtasks: subs,
-            );
-            if (rep != 'once') {
-              await db.autoAllocateRollingHabits();
-            }
+            final targetDates = db.generateRepeatDates(date, rep, repDays, horizonDays: 60);
+            final items = targetDates
+                .map((d) => {
+                      'date': d,
+                      'title': title,
+                      'description': desc,
+                      'startMinutes': start,
+                      'endMinutes': end,
+                      'category': cat,
+                      'priority': pri,
+                      'repeatType': rep,
+                      'repeatDays': repDays,
+                      'notes': notes,
+                      'reminder': rem,
+                      'subtasks': subs,
+                    })
+                .toList();
+            await db.addTasksBatch(items);
           }
           return {'ok': true, 'title': title, 'repeat': rep, 'category': cat, 'priority': pri};
 

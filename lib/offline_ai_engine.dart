@@ -930,22 +930,23 @@ class OfflineAiEngine {
         );
       }
     } else {
-      await db.addTask(
-        date: date,
-        title: title,
-        startMinutes: startMinutes,
-        endMinutes: endMinutes,
-        category: category,
-        priority: pri,
-        repeatType: _pendingRepeatType,
-        repeatDays: _pendingRepeatDays,
-        notes: _pendingNotes,
-        reminder: rem,
-        subtasks: subsJson,
-      );
-      if (_pendingRepeatType != 'once') {
-        await db.autoAllocateRollingHabits();
-      }
+      final targetDates = db.generateRepeatDates(date, _pendingRepeatType, _pendingRepeatDays, horizonDays: 60);
+      final items = targetDates
+          .map((d) => {
+                'date': d,
+                'title': title,
+                'startMinutes': startMinutes,
+                'endMinutes': endMinutes,
+                'category': category,
+                'priority': pri,
+                'repeatType': _pendingRepeatType,
+                'repeatDays': _pendingRepeatDays,
+                'notes': _pendingNotes,
+                'reminder': rem,
+                'subtasks': subsJson,
+              })
+          .toList();
+      await db.addTasksBatch(items);
     }
 
     final timeLabel = _formatMinutes(startMinutes);

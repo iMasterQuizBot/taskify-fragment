@@ -50,6 +50,7 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
   bool _closed = false;
   bool _sttReady = false;
   double _micLevel = 0.0;
+  DateTime _lastLvlPaint = DateTime.fromMillisecondsSinceEpoch(0);
   String _lastRecognized = '';
   String _statusLabel = 'बोलने के लिए गोले को दबाकर रखें';
 
@@ -106,14 +107,14 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
 
   Future<void> _stopCurrentMode() async {
     try {
-      await _sttAudio.invokeMethod('muteBeep');
-      await _stt.stop();
+      await _sttAudio.invokeMethod('muteBeep').timeout(const Duration(milliseconds: 300));
+      await _stt.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     try {
-      await _tts.stop();
+      await _tts.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     try {
-      await _apiSvc.stop();
+      await _apiSvc.stop().timeout(const Duration(milliseconds: 600));
     } catch (_) {}
   }
 
@@ -212,6 +213,9 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
       listenFor: const Duration(minutes: 2),
       pauseFor: const Duration(minutes: 2),
       onSoundLevelChange: (level) {
+        final now = DateTime.now();
+        if (now.difference(_lastLvlPaint).inMilliseconds < 85) return;
+        _lastLvlPaint = now;
         if (mounted && _isHolding && _mode == _VoiceMode.offline) {
           setState(() => _micLevel = (level.clamp(0, 12) / 12).toDouble());
         }
@@ -304,21 +308,27 @@ class _LiveVoiceScreenState extends State<LiveVoiceScreen> {
     final isApi = _mode == _VoiceMode.api;
     _closed = true;
     _isHolding = false;
-    await _stopCurrentMode();
-    await _apiSvc.dispose();
-    await _stopForegroundService();
     AppUiBridge.instance.showBubble(isApi: isApi);
     if (mounted) Navigator.pop(context);
+    _cleanupAsync();
   }
 
   Future<void> _close() async {
     if (_closed) return;
     _closed = true;
     _isHolding = false;
-    await _stopCurrentMode();
-    await _apiSvc.dispose();
-    await _stopForegroundService();
     if (mounted) Navigator.pop(context);
+    _cleanupAsync();
+  }
+
+  void _cleanupAsync() {
+    Future(() async {
+      await _stopCurrentMode();
+      try {
+        await _apiSvc.dispose().timeout(const Duration(milliseconds: 600));
+      } catch (_) {}
+      await _stopForegroundService();
+    });
   }
 
   AiOrbState get _orbState {

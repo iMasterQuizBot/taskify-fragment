@@ -339,20 +339,30 @@ class LiveVoiceService {
           if (start == null) return {'error': 'start_time HH:MM में चाहिए'};
           final date = _parseDate(args['date']);
           final end = _parseTime(args['end_time']);
-          final id = await db.addTask(
-            date: date,
-            title: (args['title'] ?? 'नया टास्क').toString(),
-            startMinutes: start,
-            endMinutes: end,
-            category: (args['category'] ?? 'Other').toString(),
-            priority: int.tryParse('${args['priority'] ?? 2}') ?? 2,
-            repeatType: (args['repeat_type'] ?? 'once').toString(),
-            repeatDays: (args['repeat_days'] ?? '').toString(),
-            notes: (args['notes'] ?? '').toString(),
-            reminder: true,
-          );
+          final rep = (args['repeat_type'] ?? 'once').toString();
+          final repDays = (args['repeat_days'] ?? '').toString();
+          final title = (args['title'] ?? 'नया टास्क').toString();
+          final cat = (args['category'] ?? 'Other').toString();
+          final pri = int.tryParse('${args['priority'] ?? 2}') ?? 2;
+          final notes = (args['notes'] ?? '').toString();
+          final targetDates = db.generateRepeatDates(date, rep, repDays, horizonDays: 60);
+          final items = targetDates
+              .map((d) => {
+                    'date': d,
+                    'title': title,
+                    'startMinutes': start,
+                    'endMinutes': end,
+                    'category': cat,
+                    'priority': pri,
+                    'repeatType': rep == 'spaced' ? 'once' : rep,
+                    'repeatDays': repDays,
+                    'notes': notes,
+                    'reminder': true,
+                  })
+              .toList();
+          await db.addTasksBatch(items);
           onDatabaseChanged?.call();
-          return {'ok': true, 'id': id, 'date': DateFormat('yyyy-MM-dd').format(date)};
+          return {'ok': true, 'count': items.length, 'date': DateFormat('yyyy-MM-dd').format(date)};
 
         case 'edit_task':
           final rows = await db.searchTasks(
@@ -596,12 +606,12 @@ class LiveVoiceService {
     await _micSub?.cancel();
     _micSub = null;
     try {
-      await _rec.stop();
+      await _rec.stop().timeout(const Duration(milliseconds: 500));
     } catch (_) {}
     await _wsSub?.cancel();
     _wsSub = null;
     try {
-      await _ws?.sink.close();
+      await _ws?.sink.close().timeout(const Duration(milliseconds: 400));
     } catch (_) {}
     _ws = null;
     try {

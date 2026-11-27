@@ -206,13 +206,80 @@ class AppDatabase {
     }
   }
 
+  /// दिए गए startDate से अगले [horizonDays] दिनों में केवल वही तारीख़ें लौटाता है
+  /// जो repeatType और repeatDays से 100% मेल खाती हैं (जैसे शुक्रवार को Sat,Sun चुनने पर शुक्रवार नहीं आएगा)।
+  List<DateTime> generateRepeatDates(
+    DateTime startDate,
+    String repeatType,
+    String repeatDays, {
+    int horizonDays = 60,
+  }) {
+    final base = DateTime(startDate.year, startDate.month, startDate.day);
+    final out = <DateTime>[];
+    if (repeatType == 'once') {
+      return [base];
+    }
+    if (repeatType == 'daily') {
+      for (int i = 0; i < horizonDays; i++) {
+        out.add(base.add(Duration(days: i)));
+      }
+      return out;
+    }
+    if (repeatType == 'alternate') {
+      for (int i = 0; i < horizonDays; i += 2) {
+        out.add(base.add(Duration(days: i)));
+      }
+      return out;
+    }
+    if (repeatType == 'weekdays') {
+      for (int i = 0; i < horizonDays; i++) {
+        final d = base.add(Duration(days: i));
+        if (d.weekday >= 1 && d.weekday <= 5) out.add(d);
+      }
+      return out;
+    }
+    if (repeatType == 'weekends') {
+      for (int i = 0; i < horizonDays; i++) {
+        final d = base.add(Duration(days: i));
+        if (d.weekday == 6 || d.weekday == 7) out.add(d);
+      }
+      return out;
+    }
+    if (repeatType == 'custom_days') {
+      const weekdayMap = {'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6, 'Sun': 7};
+      final targetWeekdays = repeatDays
+          .split(',')
+          .map((e) => weekdayMap[e.trim()])
+          .whereType<int>()
+          .toSet();
+      if (targetWeekdays.isEmpty) return out;
+      for (int i = 0; i < horizonDays; i++) {
+        final d = base.add(Duration(days: i));
+        if (targetWeekdays.contains(d.weekday)) out.add(d);
+      }
+      return out;
+    }
+    if (repeatType == 'spaced') {
+      for (final offset in [0, 1, 3, 7, 21]) {
+        out.add(base.add(Duration(days: offset)));
+      }
+      return out;
+    }
+    return [base];
+  }
+
   Future<void> autoAllocateRollingHabits() async {
     final repeatingTasks = await db.rawQuery('''
-      SELECT t.*, MIN(t.date) AS firstDate
+      SELECT t.*, (SELECT MIN(t2.date) FROM tasks t2 WHERE t2.title = t.title AND t2.date >= ?) AS firstDate
       FROM tasks t
+      INNER JOIN (
+        SELECT title, MAX(id) AS maxId
+        FROM tasks
+        WHERE date >= ?
+        GROUP BY title
+      ) latest ON t.id = latest.maxId
       WHERE t.repeatType IN ('daily', 'weekdays', 'weekends', 'custom_days')
-      GROUP BY t.title
-    ''');
+    ''', [dateKey(DateTime.now()), dateKey(DateTime.now())]);
     if (repeatingTasks.isEmpty) return;
 
     final now = DateTime.now();
@@ -491,54 +558,65 @@ class AppDatabase {
     if (isPastDate(fromDate)) return;
     final fromDateStr = dateKey(fromDate);
 
-    // 2. अगर टाइटल बदला है, तो फ्यूचर में नए टाइटल के डुप्लीकेट टास्क डिलीट करें
-    if (originalTitle != newTitle) {
-      await db.delete(
-        'tasks',
-        where: 'title = ? AND date > ?',
-        whereArgs: [newTitle, fromDateStr],
-      );
-    }
-
-    // 3. अब fromDate (आज) से आगे के सभी टास्क को अपडेट करें
-    final rows = await db.query(
+    // 1. fromDate और उसके आगे के सभी पुराने (non-completed) टास्क हटाएँ ताकि
+    //    जैसे ही रिपीट मोड Daily से Custom Day (सिर्फ़ Sunday) या Weekends किया जाए,
+    //    बाकी दिनों के पुराने टास्क तुरंत साफ हो जाएँ। (date < fromDateStr को बिल्कुल नहीं छुएँगे!)
+    final oldRows = await db.query(
       'tasks',
-      where: 'title = ? AND date >= ?',
-      whereArgs: [originalTitle, fromDateStr],
+      columns: ['id', 'date', 'status'],
+      where: "(title = ? OR title = ?) AND date >= ? AND status != 'completed'",
+      whereArgs: [originalTitle, newTitle, fromDateStr],
     );
 
-    for (final row in rows) {
-      final rowId = row['id'] as int;
-      final rowDateStr = row['date'].toString();
+    final completedDates = (await db.query(
+      'tasks',
+      columns: ['date'],
+      where: "(title = ? OR title = ?) AND date >= ? AND status = 'completed'",
+      whereArgs: [originalTitle, newTitle, fromDateStr],
+    ))
+        .map((r) => r['date'].toString())
+        .toSet();
 
+    for (final r in oldRows) {
       try {
-        await NotificationService.cancel(rowId);
+        await NotificationService.cancel(r['id'] as int);
       } catch (_) {}
-
-      await db.update(
-        'tasks',
-        {
-          'title': newTitle,
-          'description': description,
-          'startMinutes': startMinutes,
-          'endMinutes': endMinutes,
-          'category': category,
-          'priority': priority,
-          'repeatType': repeatType,
-          'repeatDays': repeatDays,
-          'notes': notes,
-          'subtasks': subtasks,
-          'reminder': reminder ? 1 : 0,
-          'updatedAt': DateTime.now().toIso8601String(),
-        },
-        where: 'id = ?',
-        whereArgs: [rowId],
-      );
-
-      if (reminder) {
-        _scheduleTaskNotification(rowId, newTitle, DateTime.parse(rowDateStr), startMinutes);
-      }
     }
+
+    await db.delete(
+      'tasks',
+      where: "(title = ? OR title = ?) AND date >= ? AND status != 'completed'",
+      whereArgs: [originalTitle, newTitle, fromDateStr],
+    );
+
+    // 2. नए रिपीट मोड और दिनों के हिसाब से सिर्फ़ मैच करने वाली तारीख़ों पर टास्क दोबारा बनाएँ
+    final dates = generateRepeatDates(fromDate, repeatType, repeatDays, horizonDays: 60);
+    final batchItems = <Map<String, dynamic>>[];
+
+    for (int i = 0; i < dates.length; i++) {
+      final d = dates[i];
+      final dKey = dateKey(d);
+      if (completedDates.contains(dKey)) continue;
+      final isSpaced = repeatType == 'spaced';
+      final suffix = (isSpaced && i > 0) ? ' (Rev +${d.difference(DateTime(fromDate.year, fromDate.month, fromDate.day)).inDays}d)' : '';
+      batchItems.add({
+        'date': d,
+        'title': '$newTitle$suffix',
+        'description': description,
+        'startMinutes': startMinutes,
+        'endMinutes': endMinutes,
+        'category': category,
+        'priority': priority,
+        'repeatType': isSpaced ? 'once' : repeatType,
+        'repeatDays': repeatDays,
+        'notes': notes,
+        'reminder': reminder,
+        'subtasks': subtasks,
+        'attachmentPath': '',
+      });
+    }
+
+    await addTasksBatch(batchItems);
   }
 
   Future<void> updateStatus(int id, String status) async {

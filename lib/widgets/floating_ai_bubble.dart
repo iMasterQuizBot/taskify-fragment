@@ -43,6 +43,7 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
   bool _initializedPos = false;
   bool _sttReady = false;
   bool _isHolding = false;
+  int _turnEpoch = 0;
   String _state = 'idle'; // idle, connecting, listening, thinking, speaking
   double _micLevel = 0.0;
   DateTime _lastLvlPaint = DateTime.fromMillisecondsSinceEpoch(0);
@@ -136,21 +137,22 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
   Future<void> _onHoldStart() async {
     if (_isHolding) return;
     HapticFeedback.mediumImpact();
+    _turnEpoch++;
     _isHolding = true;
     _recognized = '';
     final isApi = AppUiBridge.instance.bubbleIsApiMode.value;
 
     if (isApi) {
-      await _ensureApiService();
-      await _apiSvc?.interrupt();
-      _apiSvc?.setMuted(false);
+      if (_apiSvc == null) {
+        await _ensureApiService();
+      }
+      _apiSvc?.interrupt();
       if (mounted) setState(() => _state = 'listening');
       return;
     }
 
-    try {
-      await _tts.stop().timeout(const Duration(milliseconds: 500));
-    } catch (_) {}
+    // Offline Instant Barge-In: TTS तुरंत रोकें और बिना रुके सुनना शुरू करें
+    _tts.stop().catchError((_) {});
     if (!_sttReady) _sttReady = await _stt.initialize();
     if (!_sttReady) {
       _isHolding = false;
@@ -216,12 +218,13 @@ class _FloatingAiBubbleState extends State<FloatingAiBubble> {
       _micLevel = 0.0;
     });
 
+    final epoch = _turnEpoch;
     await widget.db.addAiMessage(channel: 'offline', role: 'user', text: words);
     final reply = await _offlineEngine.process(words);
     if (reply.dbChanged) widget.onDatabaseChanged();
     await widget.db.addAiMessage(channel: 'offline', role: 'assistant', text: reply.text);
 
-    if (!mounted) return;
+    if (!mounted || _isHolding || epoch != _turnEpoch) return;
     setState(() => _state = 'speaking');
     try {
       await TtsVoice.apply(_tts, widget.db);

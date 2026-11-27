@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -308,27 +309,44 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> exportBackupFile() async {
     try {
-      final chosenFolder = await showDialog<Directory>(
-        context: context,
-        builder: (_) => const NativeStorageExplorerDialog(isFolderPicker: true),
-      );
-
-      Directory dest = chosenFolder ?? Directory('/storage/emulated/0/Download');
-      if (!await dest.exists()) {
-        final ext = await getExternalStorageDirectory();
-        dest = ext ?? await getApplicationDocumentsDirectory();
-      }
-
       final json = await widget.db.exportJson();
       final dateStr = DateFormat('yyyy-MM-dd_HHmm').format(DateTime.now());
-      final fileName = 'Taskify_Backup_$dateStr.json';
+      final fileName = 'Taskifyy_Backup_$dateStr.json';
+      final bytes = Uint8List.fromList(utf8.encode(json));
 
-      final file = File('${dest.path}/$fileName');
-      await file.writeAsString(json);
+      // Android 11+ Scoped Storage (SAF): बिना किसी permission error के किसी भी फ़ोल्डर में सेव करें
+      String? savedPath;
+      try {
+        savedPath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Save Taskifyy Backup (.json)',
+          fileName: fileName,
+          type: FileType.custom,
+          allowedExtensions: const ['json'],
+          bytes: bytes,
+        );
+      } catch (_) {
+        savedPath = null;
+      }
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup exported successfully:\n${file.path}'), duration: const Duration(seconds: 4)),
+      if (savedPath != null && savedPath.isNotEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Tasks backup सेव हो गया: $fileName'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+
+      // अगर यूज़र ने SAF कैंसल न किया हो या डिवाइस पर saveFile सपोर्ट न करे, तो ऐप फ़ोल्डर + Share fallback
+      final dir = await getApplicationDocumentsDirectory();
+      final fallbackFile = File('${dir.path}/$fileName');
+      await fallbackFile.writeAsBytes(bytes, flush: true);
+      await Share.shareXFiles(
+        [XFile(fallbackFile.path, mimeType: 'application/json')],
+        subject: fileName,
+        text: 'Taskifyy Tasks Backup',
       );
     } catch (e) {
       if (!mounted) return;
